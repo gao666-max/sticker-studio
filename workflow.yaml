@@ -1,0 +1,188 @@
+name: dsh-image-studio
+version: 1
+description: >
+  角色图到微信表情包 / 精灵图 / 单图梗图的可复用生产线。
+  工具：DSH + dsh-image-gen + DashScope qwen-image-3.0 + Python/Pillow。
+
+inputs:
+  character: character.png
+  pack: pack.json
+  reference: 客户照片或已有角色图
+
+outputs:
+  - submit/表情图/01.gif ... 08.gif
+  - submit/封面图.png
+  - submit/聊天面板图标.png
+  - submit/详情页横幅.png
+  - submit/赞赏引导图.png
+  - submit/赞赏致谢图.png
+  - 预览.html
+  - 预览.png
+  - 上架文案.md
+  - 交付给客户.zip
+
+parameters:
+  sheet:
+    cols: 4
+    rows: 4
+    size: 2048
+    cell: 512
+    margin: 0.08
+  gif:
+    size: 240
+    frames: 16
+    frame_ms: 120
+    max_kb: 500
+    colors: 128
+  gif_smooth:
+    positions: 8
+    frame_ms: 80
+    size: 512
+    colors: 256
+  assets:
+    cover: [240, 240]
+    icon: [50, 50]
+    banner: [750, 400]
+    reward_guide: [750, 560]
+    reward_thanks: [750, 750]
+  one_shot:
+    size: [1024, 1024]
+    text_lines: 2
+
+gates:
+  hard:
+    - 4 x 4 = 16 格，格数正确
+    - 无网格线、分格线、数字
+    - 无水印、logo、签名
+    - 字幕逐字正确，无错别字
+    - 角色身份一致：脸、发型、服装、配饰
+    - 关键物体每格都在：爱心、钱包、道具
+    - 不压边，至少 8% 留白
+    - 同一角色身高、脚底线
+    - GIF 240 x 240、16 帧、500KB 以内
+    - 5 张配套素材尺寸正确、无文字
+  soft:
+    - 首尾帧能循环，不跳帧
+    - 表情在 240px 下可读
+    - 动作差异足够，不是只换字
+    - 深色背景无白边
+    - 色彩统一，不脏、不糊
+    - 横幅不切头，人物完整
+    - 中文手写体不挡主体
+
+failure_rules:
+  - symptom: 假透明
+    cause: 模型把棋盘格当视觉提示
+    fix: tools_detach.py 抠底，补 8px 白边
+    rule: 先看 alpha 通道
+  - symptom: 水印
+    cause: 模型默认加水印
+    fix: 换模型 / 循环帧替换
+    rule: 水印是硬否决
+  - symptom: 8 格而不是 16 格
+    cause: 模型把 4x4 理解成 4x2
+    fix: 重抽，先数格
+    rule: 格数是第一眼检查项
+  - symptom: 16 格漏画爱心 / 网格线
+    cause: 一次生成注意力不够
+    fix: 4x1 关键帧 + 归一化拼装
+    rule: 关键物体少格多次
+  - symptom: 人物大小漂移 / 压边
+    cause: 没有全局网格约束
+    fix: 按身高 / 脚线归一化
+    rule: 一致性靠后处理
+  - symptom: 横幅切头
+    cause: 方形原图居中裁切
+    fix: 保留头顶的顶部裁切
+    rule: 横图先留头部空间
+  - symptom: 4 姿势不丝滑
+    cause: 关键帧太少
+    fix: 补左上 / 右上中间姿势
+    rule: 丝滑 = 密度 x 节奏
+  - symptom: 中文错字
+    cause: 中文是生成结果
+    fix: 逐字校，错字重抽
+    rule: 中文是验收项
+
+prompts:
+  character: |
+    Turn the subject of this photo into an original, heavily stylized cute cartoon sticker character: cute cartoon, thick clean dark outlines, flat colors, warm 1990s Chinese retro palette. Keep the identifying features: {{hair}}, {{face}}, {{accessories}}, {{outfit}}. It must clearly read as a drawing, never photorealistic. Front-facing full body, centered, fully transparent background, no text, no border.
+
+  sheet: |
+    Use the character in the input image exactly: {{character_lock}}.
+
+    Draw ONE square image: exactly 4 columns x 4 rows = 16 equal square cells. Read left to right, top to bottom, each cell is the next frame of one short looping animation. No grid lines, no borders, no numbers.
+
+    Background must be truly transparent (PNG alpha). Do NOT paint a grey-and-white checkerboard pattern.
+
+    In every cell the character stays exactly the same size and on the same ground line, fully inside the cell with at least 8% empty margin on all four sides.
+
+    Row 1 (frames 1-4): {{row1}}
+    Row 2 (frames 5-8): {{row2}}
+    Row 3 (frames 9-12): {{row3}}
+    Row 4 (frames 13-16): {{row4}}
+
+    Frame 16 must flow smoothly back into frame 1.
+
+    Every cell has the same bold hand-lettered caption "{{caption}}" at the bottom, with a thick white sticker outline around both the caption and the character. No other text.
+
+    Absolutely no watermark, no logo, no signature, no "AI generated" mark anywhere in the image.
+
+  key_poses: |
+    Use the character in the reference image exactly: {{character_lock}}.
+
+    Draw ONE wide image: exactly 4 equal square cells in a single horizontal row (4 columns x 1 row). No grid lines, no borders, no frames, no dividing lines between cells. One continuous warm beige background.
+
+    All four cells contain the SAME girl at exactly the same size, same ground line, fully inside her cell with at least 8% empty margin on all four sides. Each cell contains the SAME one big red heart, held with both hands; the heart must never be missing, deformed, or hidden behind her arms.
+
+    Do NOT draw any arc, curved path, trajectory, dotted line, dashed line, motion line, arrow, or swirl. Add exactly 4 small pink hearts per cell, scattered along the route; never connect them with a line.
+
+    Cell 1: {{pose1}}
+    Cell 2: {{pose2}}
+    Cell 3: {{pose3}}
+    Cell 4: {{pose4}}
+
+    No text, numbers, letters, logos, signatures, or watermarks anywhere.
+
+    Wide 4:1 composition, 2048x512.
+
+  in_between: |
+    Use the character in the reference image exactly: {{character_lock}}.
+
+    Draw ONE wide image: exactly 4 equal square cells in a single horizontal row. No grid lines, no borders. One continuous warm beige background.
+
+    All four cells: same girl, same size, same ground line, 8% empty margin. Each cell: the SAME one big red heart, held with both hands; never missing, never deformed, never hidden behind her arms.
+
+    Do NOT draw any arc, path, trajectory, dotted line, motion line, arrow, or swirl. Add exactly 4 small pink hearts per cell.
+
+    Cell 1: heart at the UPPER-LEFT diagonal, between chest and overhead; arms bent up-left; body leans left; looks up-left.
+    Cell 2: heart at the UPPER-RIGHT diagonal, between chest and overhead; arms bent up-right; body leans right; looks up-right.
+    Cell 3: exactly the same pose as Cell 1.
+    Cell 4: exactly the same pose as Cell 2.
+
+    No text, numbers, letters, logos, signatures, or watermarks.
+
+    Wide 4:1 composition, 2048x512.
+
+  one_shot: |
+    Use the character in the reference image exactly: {{character_lock}}.
+
+    A cute, exaggerated, funny "totally broke" scene: she leans forward slightly, holding an empty wallet upside down with both hands and shaking it; only one small coin and one dry autumn leaf fall out. Her eyebrows droop, her eyes are big and teary, her mouth is pursed in a pitiful but comical expression. Warm beige background with subtle radial speed lines behind her. Cute and meme-like, not sad, not realistic, not photographic.
+
+    At the bottom of the image, two lines of bold hand-lettered Chinese text, dark brown with a thick white sticker outline, centered, not covering the character:
+    Line 1, large: 「老爸，给点钱吧」
+    Line 2, smaller: 「我真的没钱了」
+
+    Use exactly these characters and punctuation, no typos. Apart from these two lines, absolutely no other text, numbers, letters, logos, signatures, or watermarks anywhere in the image.
+
+    Square 1:1 composition, 1024x1024.
+
+  negative: |
+    NO grid lines, NO borders, NO panel frames, NO cell numbers.
+    NO watermark, NO logo, NO signature, NO "AI generated" mark.
+    NO text except the one specified caption.
+    NO grey-and-white checkerboard pretending to be transparency.
+    NO motion blur, NO dust clouds, NO semi-transparent effects.
+    NO extra fingers, NO extra limbs, NO redesign of the character.
+    NO clipping at cell edges; keep at least 8% empty margin.
+    NO arc / path / trajectory / dotted line / motion line when the brief says "only small hearts".

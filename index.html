@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>旗袍表情工坊 · 定制工作台</title>
+<meta name="description" content="客户上传形象、选择表情、查看状态与提示词，生成一整套可上传微信的表情包素材。">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f5edde'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23c8452d'/%3E%3C/svg%3E">
+</head>
+<body class="mode-studio">
+
+<header class="app-bar">
+  <div class="app-bar-inner">
+    <a class="brand" href="index.html">旗袍表情工坊 <small>STUDIO</small></a>
+    <div class="mode-switch" role="group" aria-label="视图模式">
+      <button type="button" data-mode="client">客户视图</button>
+      <button type="button" data-mode="studio" class="is-active">工作室视图</button>
+    </div>
+    <div class="steps" aria-hidden="true">
+      <span><b>01</b> 上传形象</span>
+      <span><b>02</b> 选表情</span>
+      <span><b>03</b> 生成交付</span>
+    </div>
+    <a class="top-link" href="workflow.md" target="_blank" rel="noopener">制作流程</a>
+  </div>
+</header>
+
+<div class="demo-banner">
+  <div class="banner-inner">
+    <span id="backendNote"><b>演示模式</b> 生成结果来自示例素材，接入后端后替换为客户本人。</span>
+    <div>
+      <button type="button" class="link-btn" id="devBtn">接入说明</button>
+      <button type="button" class="link-btn" id="newOrderBtn">新建订单</button>
+    </div>
+  </div>
+</div>
+
+<main class="app-main">
+  <div class="main-col">
+
+    <section class="panel upload-panel" id="uploadPanel">
+      <div class="panel-head">
+        <div><p class="kicker">01 / CHARACTER</p><h2>上传客户形象</h2></div>
+        <span class="panel-note" id="characterStatus">示例角色</span>
+      </div>
+      <div class="upload-grid">
+        <label class="dropzone" id="dropzone" for="fileInput">
+          <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" hidden>
+          <div class="drop-empty" id="dropEmpty">
+            <span class="drop-icon">＋</span>
+            <b>拖入照片，或点击上传</b>
+            <small>正面、清晰、单人。支持 JPG / PNG / WebP</small>
+          </div>
+          <img id="characterPreview" alt="客户形象预览" hidden>
+        </label>
+        <div class="upload-info">
+          <h3>先锁定一张角色锚点</h3>
+          <p>上传后，系统会把它作为整套表情的同一角色。正式版会先转成 1024 透明底卡通角色图，再进入 4×4 精灵图生成。</p>
+          <ul class="upload-tips">
+            <li>正面或微侧，五官清晰</li>
+            <li>避免强逆光、多人合照</li>
+            <li>确认你有权使用这张照片</li>
+          </ul>
+          <div class="btn-row">
+            <button type="button" class="btn" id="sampleBtn">使用示例角色</button>
+            <button type="button" class="btn ghost" id="removeCharBtn">移除形象</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel catalog-panel">
+      <div class="panel-head">
+        <div><p class="kicker">02 / EXPRESSIONS</p><h2>选择要做的表情</h2></div>
+        <div class="catalog-count"><b id="selectedCount">8</b> / <span id="totalCount">12</span> 已选</div>
+      </div>
+
+      <div class="catalog-toolbar">
+        <div class="filters" id="filters"></div>
+        <input class="search" id="searchInput" type="search" placeholder="搜索表情，例如：晚安">
+        <div class="toolbar-actions">
+          <button type="button" class="mini-btn" id="selectAllBtn">全选</button>
+          <button type="button" class="mini-btn" id="clearBtn">清空</button>
+          <button type="button" class="mini-btn studio-only" id="addStateBtn">＋ 自定义</button>
+        </div>
+      </div>
+
+      <div class="catalog" id="catalog"></div>
+    </section>
+  </div>
+
+  <aside class="rail" id="rail">
+    <section class="panel order-panel">
+      <div class="panel-head"><div><p class="kicker">ORDER</p><h2>订单信息</h2></div></div>
+      <div class="order-form">
+        <label for="packName">表情包名称<input id="packName" maxlength="20" autocomplete="off"></label>
+        <label for="packIntro">介绍<textarea id="packIntro" maxlength="80"></textarea></label>
+        <label for="packCopyright">版权 / 作者<input id="packCopyright" maxlength="20" autocomplete="off"></label>
+        <label for="packReward">赞赏引导语<input id="packReward" maxlength="20" autocomplete="off"></label>
+      </div>
+    </section>
+
+    <section class="panel status-panel">
+      <div class="panel-head">
+        <div><p class="kicker">PRODUCTION</p><h2>状态看板</h2></div>
+        <div class="head-actions">
+          <span class="panel-note" id="modeNote">工作室视图</span>
+          <button type="button" class="mini-btn studio-only" id="usageBtn">用量 / 成本</button>
+        </div>
+      </div>
+      <div class="status-grid">
+        <div class="status-cell"><b id="statDone">8</b><span>已完成</span></div>
+        <div class="status-cell"><b id="statReview">0</b><span>待复核</span></div>
+        <div class="status-cell"><b id="statDraft">0</b><span>待处理</span></div>
+        <div class="status-cell"><b id="statSelected">8</b><span>已选</span></div>
+      </div>
+      <button type="button" class="usage-inline studio-only" id="usageInline">API 0 次 · 预估 ¥0.00</button>
+      <div class="order-ref studio-only" id="orderRef"></div>
+      <div class="progress"><i id="progressBar"></i></div>
+      <div class="btn-row">
+        <button type="button" class="btn primary studio-only" id="generateBtn">开始生成</button>
+        <button type="button" class="btn studio-only" id="approveBtn">一键通过复核</button>
+        <button type="button" class="btn primary client-only" id="submitBtn">提交需求</button>
+      </div>
+      <p class="rail-note" id="railNote">演示模式：生成会使用示例素材，状态流程与真实生产一致。</p>
+    </section>
+
+    <section class="panel delivery-panel">
+      <div class="panel-head">
+        <div><p class="kicker">DELIVERABLES</p><h2>交付包</h2></div>
+        <span class="panel-note" id="deliveryCount">8 GIF</span>
+      </div>
+      <div class="delivery-list" id="deliveryList"></div>
+      <div class="asset-strip-mini">
+        <figure><img src="assets/asset-icon.webp" alt="ICON 预览" data-asset-preview="icon"><figcaption>ICON</figcaption></figure>
+        <figure><img src="assets/asset-cover.webp" alt="封面预览" data-asset-preview="cover"><figcaption>封面</figcaption></figure>
+        <figure><img src="assets/asset-banner.webp" alt="横幅预览" data-asset-preview="banner"><figcaption>横幅</figcaption></figure>
+        <figure><img src="assets/asset-reward-guide.webp" alt="赞赏图预览" data-asset-preview="reward_guide"><figcaption>赞赏</figcaption></figure>
+      </div>
+      <div class="asset-checks" id="assetChecks">
+        <label><input type="checkbox" data-asset="icon" checked> ICON 50×50</label>
+        <label><input type="checkbox" data-asset="cover" checked> 封面 240</label>
+        <label><input type="checkbox" data-asset="banner" checked> 横幅 750×400</label>
+        <label><input type="checkbox" data-asset="rewards" checked> 赞赏图 ×2</label>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn primary" id="downloadBtn">下载 ZIP</button>
+        <button type="button" class="btn ghost" id="copyListingBtn">复制上架文案</button>
+      </div>
+      <p class="rail-note" id="downloadNote">包含所选 GIF、ICON、封面、横幅、赞赏图、上架文案与 pack.json。</p>
+    </section>
+  </aside>
+</main>
+
+<div class="mobile-bar" id="mobileBar">
+  <span><b id="mobileCount">8</b> 张已选</span>
+  <button type="button" class="btn" id="mobileRailBtn">查看订单</button>
+</div>
+
+<div class="overlay" id="overlay"></div>
+
+<aside class="drawer" id="promptDrawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div><p class="kicker">PROMPT</p><h2 id="drawerTitle">提示词</h2></div>
+    <button type="button" class="icon-btn" id="drawerClose" aria-label="关闭">×</button>
+  </div>
+  <div class="drawer-body">
+    <div class="drawer-meta">
+      <label>状态
+        <select id="drawerStatus">
+          <option value="draft">待生成</option>
+          <option value="queued">已提交</option>
+          <option value="generating">生成中</option>
+          <option value="review">待复核</option>
+          <option value="done">已完成</option>
+          <option value="failed">已退回</option>
+        </select>
+      </label>
+      <button type="button" class="mini-btn" id="rewritePrompt">用模板重写</button>
+      <button type="button" class="mini-btn" id="copyPrompt">复制</button>
+    </div>
+    <p class="drawer-note">提示词会随状态保存。客户视图看不到这一段。</p>
+    <textarea id="promptText" spellcheck="false"></textarea>
+  </div>
+  <div class="drawer-foot">
+    <button type="button" class="btn ghost" id="drawerCancel">取消</button>
+    <button type="button" class="btn primary" id="drawerSave">保存提示词</button>
+  </div>
+</aside>
+
+<div class="modal" id="stateModal" aria-hidden="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="stateModalTitle">自定义表情</h2>
+      <button type="button" class="icon-btn" id="stateModalClose" aria-label="关闭">×</button>
+    </div>
+    <div class="form-grid">
+      <label>含义词<input id="stateWord" maxlength="8" placeholder="例如：在吗"></label>
+      <label>字幕<input id="stateCaption" maxlength="8" placeholder="默认同含义词"></label>
+      <label>分类
+        <select id="stateCat">
+          <option>常用</option>
+          <option>情绪</option>
+          <option>动作</option>
+          <option>自定义</option>
+        </select>
+      </label>
+      <label class="full">动作描述<textarea id="stateAction" maxlength="120" placeholder="一句话描述这一张的姿势、表情、节奏"></textarea></label>
+    </div>
+    <p class="modal-note">保存后会按 4×4 模板自动生成提示词，也可以在提示词抽屉里改。</p>
+    <div class="modal-foot">
+      <button type="button" class="btn ghost" id="deleteStateBtn" hidden>删除</button>
+      <button type="button" class="btn ghost" id="stateCancel">取消</button>
+      <button type="button" class="btn primary" id="stateSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="submitModal" aria-hidden="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>需求已提交</h2>
+      <button type="button" class="icon-btn" id="submitClose" aria-label="关闭">×</button>
+    </div>
+    <p>工作室会在 24 小时内开始制作。你选择的 <b id="submitCount">0</b> 张表情已经进入队列。</p>
+    <div class="order-no" id="orderNo"></div>
+    <p class="modal-note">这是前端演示。接入后端后，这里会创建真实订单并发送通知。</p>
+    <div class="modal-foot"><button type="button" class="btn primary" id="submitDone">知道了</button></div>
+  </div>
+</div>
+
+<div class="modal" id="devModal" aria-hidden="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>接入真实生成</h2>
+      <button type="button" class="icon-btn" id="devClose" aria-label="关闭">×</button>
+    </div>
+    <p>当前是前端演示，生成阶段用示例素材模拟。接后端时，把 <code>mockGenerate()</code> 换成真实任务队列即可。</p>
+    <pre class="code-block">POST /api/generate
+{
+  "character": "data:image/jpeg;base64,...",
+  "pack": { "name": "...", "intro": "...", "copyright": "..." },
+  "states": [
+    { "id": "night", "word": "晚安", "caption": "晚安",
+      "action": "...", "prompt": "Use the character ..." }
+  ]
+}
+
+200 OK
+{
+  "jobId": "job_123",
+  "items": [
+    { "id": "night", "status": "review", "gif": "/assets/night.gif", "icon": "/assets/icon.png" }
+  ]
+}</pre>
+    <p class="modal-note">建议后端：接收角色图 → 调 DSH image-gen / DashScope → 去底与切帧 → 回传 GIF 与素材。前端轮询 job 状态。详细接口与数据模型见 <a href="BACKEND.md" target="_blank" rel="noopener">BACKEND.md</a>。</p>
+    <div class="modal-foot"><button type="button" class="btn primary" id="devDone">知道了</button></div>
+  </div>
+</div>
+
+<div class="modal" id="usageModal" aria-hidden="true">
+  <div class="modal-card usage-card">
+    <div class="modal-head">
+      <div><p class="kicker">API USAGE</p><h2>调用与成本</h2></div>
+      <button type="button" class="icon-btn" id="usageClose" aria-label="关闭">×</button>
+    </div>
+    <div class="usage-hero">
+      <div><b id="usageCalls">0</b><span>累计 API 调用</span></div>
+      <div><b id="usageCost">¥0.00</b><span>预估花费</span></div>
+      <div><b id="usageToday">0</b><span>今日调用</span></div>
+      <div><b id="usageRate">0%</b><span>成功率</span></div>
+    </div>
+    <p class="usage-note" id="usageNote">尚未连接后端，暂无真实用量。</p>
+    <div class="usage-chart-head"><span>近 14 天调用</span><span id="usageMonth">本月 0 次 / ¥0.00</span></div>
+    <div class="usage-chart" id="usageChart"></div>
+    <div class="usage-two">
+      <div><h3>按类型</h3><div class="usage-kinds" id="usageKinds"></div></div>
+      <div><h3>最近调用</h3><div class="usage-recent" id="usageRecent"></div></div>
+    </div>
+    <p class="usage-foot">按 <a href="https://www.alibabacloud.com/help/zh/model-studio/qwen-image-3-0" target="_blank" rel="noopener">qwen-image-3.0 官方单价</a> 估算：输出 $0.024754/张，输入图 $0.00275/张。实际以百炼账单为准；失败请求按 0 计。</p>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
