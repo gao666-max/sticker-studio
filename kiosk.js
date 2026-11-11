@@ -36,6 +36,10 @@
   let counting = false;
   let portraitMode = "bust";
 
+  const query = new URLSearchParams(location.search);
+  const SOFT_TIMEOUT = Math.max(1, Number(query.get("softTimeout")) || 180);
+  const HARD_TIMEOUT = Math.max(SOFT_TIMEOUT + 1, Number(query.get("hardTimeout")) || 300);
+
   const camera = $("camera");
   const canvas = $("captureCanvas");
   const flash = $("flash");
@@ -254,10 +258,21 @@
     if (status === "character_queued" || status === "character_processing") {
       if (state !== "PROCESS") setState("PROCESS");
       const elapsed = elapsedSeconds();
-      const percent = status === "character_queued" ? 12 : Math.min(84, 28 + Math.floor(elapsed / 2));
+      if (elapsed >= HARD_TIMEOUT) {
+        clearInterval(pollTimer);
+        showError("生成超时", "已经等待 " + elapsed + " 秒，角色还没有生成完。可以重新生成，或者重拍一张。", [
+          { label: "重新生成", action: () => retryCharacter() },
+          { label: "重拍", action: () => resetToPreview() }
+        ]);
+        return;
+      }
+      const soft = elapsed >= SOFT_TIMEOUT;
+      const percent = status === "character_queued" ? 12 : soft ? Math.min(92, 60 + Math.floor((elapsed - SOFT_TIMEOUT) / 4)) : Math.min(84, 28 + Math.floor(elapsed / 2));
       const stage = status === "character_queued" ? "upload" : elapsed < 8 ? "parse" : elapsed < 22 ? "cartoon" : "cutout";
-      $("processTitle").textContent = status === "character_queued" ? "正在排队解析人物" : "正在生成你的卡通角色…";
-      $("processSub").textContent = status === "character_queued" ? "马上开始，请稍候。" : "AI 正在努力创作，不要走开。";
+      $("processTitle").textContent = soft ? "还在生成，请再等一下" : (status === "character_queued" ? "正在排队解析人物" : "正在生成你的卡通角色…");
+      $("processSub").textContent = soft
+        ? "已经超过 " + Math.round(SOFT_TIMEOUT / 60) + " 分钟，AI 还在处理。不要离开，最多再等到 " + Math.round(HARD_TIMEOUT / 60) + " 分钟。"
+        : (status === "character_queued" ? "马上开始，请稍候。" : "AI 正在努力创作，不要走开。");
       setProcessStage(stage, percent, elapsed);
       startPolling();
       return;
@@ -278,8 +293,19 @@
     if (status === "gif_queued" || status === "gif_generating") {
       if (state !== "GIF") setState("GIF");
       const elapsed = elapsedSeconds();
-      const percent = status === "gif_queued" ? 12 : Math.min(88, 32 + Math.floor(elapsed / 2));
-      $("gifSub").textContent = status === "gif_queued" ? "正在准备动作模板，请稍候。" : "正在把角色放进动作里，请稍候。";
+      if (elapsed >= HARD_TIMEOUT) {
+        clearInterval(pollTimer);
+        showError("GIF 生成超时", "已经等待 " + elapsed + " 秒，GIF 还没有生成完。可以重新生成，或者返回动作选择。", [
+          { label: "重新生成 GIF", action: () => startGif() },
+          { label: "返回动作", action: () => { setState("ACTION"); renderActions(); } }
+        ]);
+        return;
+      }
+      const soft = elapsed >= SOFT_TIMEOUT;
+      const percent = status === "gif_queued" ? 12 : soft ? Math.min(94, 60 + Math.floor((elapsed - SOFT_TIMEOUT) / 4)) : Math.min(88, 32 + Math.floor(elapsed / 2));
+      $("gifSub").textContent = soft
+        ? "已经超过 " + Math.round(SOFT_TIMEOUT / 60) + " 分钟，还在处理，请再等一下。"
+        : (status === "gif_queued" ? "正在准备动作模板，请稍候。" : "正在把角色放进动作里，请稍候。");
       $("gifBar").style.width = percent + "%";
       $("gifPct").textContent = Math.round(percent) + "%";
       $("gifElapsed").textContent = elapsed + "s";
