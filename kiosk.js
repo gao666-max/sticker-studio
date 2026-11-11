@@ -573,6 +573,41 @@
     });
   }
 
+  function applyHardwareAction(action, delta) {
+    if (action === "shutter" && state === "PREVIEW") countdownStart();
+    if (action === "confirm" && state === "CHARACTER") confirmCharacter();
+    if (action === "confirm" && state === "ACTION") startGif();
+    if (action === "rotate" && state === "ACTION") rotateAction(Number(delta) || 1);
+  }
+
+  function connectDeviceAgent() {
+    if (window.__deviceAgentStarted) return;
+    window.__deviceAgentStarted = true;
+    let source = null;
+    let retry = null;
+    function connect() {
+      try {
+        source = new EventSource("http://127.0.0.1:8788/events");
+      } catch (e) {
+        retry = setTimeout(connect, 5000);
+        return;
+      }
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "kiosk-hardware") applyHardwareAction(data.action, data.delta);
+        } catch (e) { /* ignore malformed events */ }
+      };
+      source.onerror = () => {
+        if (source) source.close();
+        source = null;
+        clearTimeout(retry);
+        retry = setTimeout(connect, 5000);
+      };
+    }
+    connect();
+  }
+
   async function checkBackend() {
     try {
       await request("/api/health");
@@ -590,6 +625,7 @@
     setState("PREVIEW");
     startCamera();
     checkBackend();
+    connectDeviceAgent();
     window.KioskHardware = {
       shutter: () => document.dispatchEvent(new CustomEvent("kiosk:shutter")),
       confirm: () => document.dispatchEvent(new CustomEvent("kiosk:confirm")),

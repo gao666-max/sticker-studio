@@ -126,6 +126,24 @@ document.dispatchEvent(new CustomEvent("kiosk:rotate", { detail: { delta: 1 } })
 
 注意：运营台没有 HTTPS 和设备证书，只适合本机或内网。忘记 PIN 时，删掉 `data/settings.json` 里的 `boothPinHash` 再重启，会恢复初始 `2468`。
 
+## 硬件代理
+
+kiosk 页面会连本机设备代理：
+
+```text
+http://127.0.0.1:8788/events
+```
+
+代理没启动也不影响键盘测试。启动：
+
+```powershell
+python device_agent.py
+```
+
+浏览器打开 `http://127.0.0.1:8787/hardware.html`，可以模拟快门、确认、旋钮、打印和支付。
+
+真实硬件接法、事件协议和检查清单见 [HARDWARE.md](HARDWARE.md)。
+
 ## 二维码与领取
 
 - 每个作品有唯一 `token`，二维码指向 `/claim/<token>`

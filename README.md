@@ -143,6 +143,23 @@ USE_DSH_CREDENTIALS=0
 
 运营台只适合本机或内网，目前没有 HTTPS、设备许可证和多设备集中队列。忘记 PIN 时，删掉 `data/settings.json` 里的 `boothPinHash` 再重启，会恢复初始 `2468`。
 
+## 硬件接入
+
+设备层和业务后端分开：
+
+- `device_agent.py` 只监听 `127.0.0.1:8788`，负责快门、旋钮、打印、支付
+- kiosk 通过 SSE 连代理，事件处理和键盘共用一套
+- `hardware.html` 是硬件模拟器，没有硬件也能测
+- 打印 / 支付现在是 stub，按 [HARDWARE.md](HARDWARE.md) 换真实 SDK
+- `test_smoke.py` 一条命令测后端、PIN、设备事件、打印、支付
+
+```powershell
+python device_agent.py
+python test_smoke.py
+```
+
+浏览器打开 `http://127.0.0.1:8787/hardware.html`。
+
 ## 成本统计
 
 `GET /api/usage` 返回累计、今日、本月、近 14 天、按类型、最近调用与预估成本。
@@ -174,6 +191,11 @@ sticker-studio/
 ├─ booth.html          # 现场运营控制台
 ├─ booth.css
 ├─ booth.js
+├─ hardware.html       # 硬件模拟器
+├─ device_agent.py     # 本地设备代理：快门 / 打印 / 支付
+├─ start-device-agent.bat
+├─ HARDWARE.md         # 硬件协议与周五检查清单
+├─ test_smoke.py       # 无 AI 消耗的冒烟测试
 ├─ start-kiosk.bat
 ├─ server.py           # 静态服务 + 订单 / Kiosk API + SQLite + 队列 + ZIP
 ├─ pipeline.py         # 去底、1024 角色、切帧、GIF、DashScope 适配

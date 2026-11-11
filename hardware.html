@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>硬件模拟器 · 旗袍表情工坊</title>
+<link rel="stylesheet" href="booth.css">
+<style>
+  .sim-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .sim-grid button{padding:22px 10px;font-family:var(--serif);font-size:20px;border:1px solid var(--ink);background:var(--paper)}
+  .sim-grid button:hover{background:var(--ink);color:var(--paper-2)}
+  .sim-grid button small{display:block;margin-top:6px;font-family:var(--mono);font-size:8px;color:var(--ink-3)}
+  .sim-grid button:hover small{color:var(--paper-3)}
+  .log{margin-top:14px;border:1px solid var(--line);background:var(--ink);color:#efe6d5;padding:12px;font-family:var(--mono);font-size:8px;line-height:1.8;min-height:90px;white-space:pre-wrap}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  @media(max-width:700px){.sim-grid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">旗袍表情工坊 <span>DEVICE LAB</span></div>
+  <nav>
+    <a href="index.html">工作室</a>
+    <a href="kiosk.html" target="_blank" rel="noopener">现场模式</a>
+    <a href="booth.html">现场运营</a>
+    <a href="hardware.html" class="is-active">硬件模拟器</a>
+  </nav>
+</header>
+<main>
+  <section class="hero">
+    <div>
+      <p class="kicker">DEVICE AGENT</p>
+      <h1>硬件模拟器</h1>
+      <p class="lede">硬件周五才到，先用它把快门、旋钮、打印和支付协议跑通。</p>
+    </div>
+    <div class="hero-actions"><button class="primary" id="openKiosk" type="button">打开拍照亭</button></div>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><p class="kicker">AGENT</p><h2>设备代理</h2></div><span class="note" id="agentNote">正在检测 8788…</span></div>
+    <div class="sim-grid">
+      <button type="button" data-event="shutter">快门<small>PREVIEW → 倒计时</small></button>
+      <button type="button" data-event="confirm">确认<small>角色 / 动作确认</small></button>
+      <button type="button" data-event="rotate" data-delta="1">旋钮 +1<small>下一个动作</small></button>
+      <button type="button" data-event="rotate" data-delta="-1">旋钮 -1<small>上一个动作</small></button>
+      <button type="button" id="printBtn">打印测试<small>POST /print</small></button>
+      <button type="button" id="payBtn">支付测试<small>POST /payment/intent</small></button>
+    </div>
+    <div class="row">
+      <button class="text-btn" id="healthBtn" type="button">刷新代理状态</button>
+      <button class="text-btn" id="connectBtn" type="button">重连事件流</button>
+    </div>
+    <div class="log" id="log">等待操作…</div>
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><p class="kicker">CONTRACT</p><h2>接口</h2></div></div>
+    <p class="hint">GET /health · GET /events · POST /event · POST /print · POST /payment/intent · GET /payment/{id}。硬件代理默认只监听 127.0.0.1:8788，kiosk 页面会自动连事件流。</p>
+  </section>
+</main>
+<script>
+(() => {
+  "use strict";
+  const AGENT = "http://127.0.0.1:8788";
+  const $ = (id) => document.getElementById(id);
+  let source = null;
+
+  function log(message) {
+    $("log").textContent = "[" + new Date().toLocaleTimeString() + "] " + message + "\n" + $("log").textContent;
+  }
+
+  async function agent(path, options = {}) {
+    const response = await fetch(AGENT + path, Object.assign({ headers: { "Content-Type": "application/json" } }, options));
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  }
+
+  async function health() {
+    try {
+      const data = await agent("/health");
+      $("agentNote").textContent = "在线 · " + data.host + ":" + data.port + " · clients " + data.clients;
+      log("agent ok, clients=" + data.clients);
+      return true;
+    } catch (e) {
+      $("agentNote").textContent = "离线 · 先运行 start-device-agent.bat";
+      log("agent offline: " + e.message);
+      return false;
+    }
+  }
+
+  function connect() {
+    if (source) source.close();
+    try {
+      source = new EventSource(AGENT + "/events");
+      source.onopen = () => log("event stream connected");
+      source.onmessage = (event) => log("event " + event.data);
+      source.onerror = () => log("event stream error, retrying");
+    } catch (e) { log("event stream failed: " + e.message); }
+  }
+
+  document.querySelectorAll("[data-event]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const payload = { action: button.dataset.event, delta: Number(button.dataset.delta || 1), source: "simulator" };
+      try { const data = await agent("/event", { method: "POST", body: JSON.stringify(payload) }); log("sent " + payload.action + " → " + data.sent + " client(s)"); }
+      catch (e) { log("event failed: " + e.message); }
+    });
+  });
+
+  $("printBtn").addEventListener("click", async () => {
+    try {
+      const data = await agent("/print", { method: "POST", body: JSON.stringify({ sessionId: "sim-" + Date.now(), copies: 1 }) });
+      log("print queued " + data.id + " · " + data.status);
+    } catch (e) { log("print failed: " + e.message); }
+  });
+
+  $("payBtn").addEventListener("click", async () => {
+    try {
+      const data = await agent("/payment/intent", { method: "POST", body: JSON.stringify({ amount: 1990 }) });
+      log("payment " + data.id + " · " + data.status + " · " + data.qrText);
+    } catch (e) { log("payment failed: " + e.message); }
+  });
+
+  $("healthBtn").addEventListener("click", health);
+  $("connectBtn").addEventListener("click", connect);
+  $("openKiosk").addEventListener("click", () => window.open("kiosk.html", "_blank", "noopener"));
+
+  health();
+  connect();
+})();
+</script>
+</body>
+</html>

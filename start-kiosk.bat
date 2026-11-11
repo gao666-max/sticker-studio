@@ -7,5 +7,6 @@ echo  正在启动后端，启动后会自动打开 kiosk 页面。
 echo  不要直接双击 kiosk.html。
 echo.
 set OPEN_KIOSK=1
+start "Sticker Booth Device Agent" cmd /k python device_agent.py
 python server.py
 pause
