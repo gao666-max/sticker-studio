@@ -497,6 +497,7 @@ def generate_kiosk_keypose(character_path: Path, action: dict, out_dir: Path,
     )
     raw = out_dir / "pose_raw.png"
     clean = out_dir / "pose.png"
+    out_dir.mkdir(parents=True, exist_ok=True)
     ctx = dict(context or {})
     ctx.setdefault("kind", "keypose")
     ctx["state_id"] = action_id
