@@ -36,6 +36,19 @@ GIF_MAX_BYTES = 500 * 1024
 CALL_LOGGER = None
 
 
+def configure(provider=None, model=None, endpoint=None, api_key=None):
+    """Apply runtime settings without restarting the server."""
+    global IMAGE_PROVIDER, DASHSCOPE_MODEL, DASHSCOPE_ENDPOINT, DASHSCOPE_KEY
+    if provider:
+        IMAGE_PROVIDER = provider.strip().lower()
+    if model:
+        DASHSCOPE_MODEL = model.strip()
+    if endpoint:
+        DASHSCOPE_ENDPOINT = endpoint.strip().rstrip("/")
+    if api_key is not None:
+        DASHSCOPE_KEY = api_key.strip()
+
+
 def set_call_logger(callback):
     """Register a callback that receives one event per real provider call."""
     global CALL_LOGGER

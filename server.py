@@ -95,7 +95,6 @@ ORDERS = DATA / "orders"
 DB_PATH = DATA / "studio.db"
 DEMO_ASSETS = ROOT / "assets"
 
-PROVIDER = pipeline.IMAGE_PROVIDER
 DEMO_MAP = {
     "receive": "gif-01.gif",
     "ok": "gif-02.gif",
@@ -121,6 +120,170 @@ DELIVER_MAP = {
 PRICE_INPUT_USD = float(os.environ.get("DASHSCOPE_PRICE_INPUT_USD", "0.00275"))
 PRICE_OUTPUT_USD = float(os.environ.get("DASHSCOPE_PRICE_OUTPUT_USD", "0.024754"))
 USD_TO_CNY = float(os.environ.get("USD_TO_CNY", "7.1"))
+
+SETTINGS_PATH = DATA / "settings.json"
+CONTENT_STYLES = {"cute", "soft", "bold"}
+CAPTION_TONES = {"short", "warm", "playful"}
+
+
+def _safe_float(value, fallback):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return number if number > 0 else fallback
+
+
+def _read_settings_file():
+    if not SETTINGS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_settings():
+    """Load settings from data/settings.json, then env, then the local DSH key."""
+    saved = _read_settings_file()
+    file_has_key = "apiKey" in saved
+    if file_has_key:
+        key = str(saved.get("apiKey") or "")
+        key_source = "settings" if key else "none"
+    else:
+        key = os.environ.get("DASHSCOPE_API_KEY", "") or pipeline.DASHSCOPE_KEY
+        key_source = "env" if key else "none"
+
+    provider = str(saved.get("provider") or os.environ.get("IMAGE_PROVIDER") or "demo").lower()
+    if provider not in ("demo", "dashscope"):
+        provider = "demo"
+    style = str(saved.get("contentStyle") or "cute")
+    if style not in CONTENT_STYLES:
+        style = "cute"
+    tone = str(saved.get("captionTone") or "short")
+    if tone not in CAPTION_TONES:
+        tone = "short"
+
+    return {
+        "provider": provider,
+        "model": str(saved.get("model") or os.environ.get("DASHSCOPE_MODEL") or "qwen-image-3.0"),
+        "endpoint": str(saved.get("endpoint") or os.environ.get("DASHSCOPE_ENDPOINT") or "https://dashscope.aliyuncs.com/api/v1"),
+        "apiKey": key,
+        "keySource": key_source,
+        "priceInputUsd": _safe_float(saved.get("priceInputUsd"), PRICE_INPUT_USD),
+        "priceOutputUsd": _safe_float(saved.get("priceOutputUsd"), PRICE_OUTPUT_USD),
+        "usdToCny": _safe_float(saved.get("usdToCny"), USD_TO_CNY),
+        "contentStyle": style,
+        "captionTone": tone,
+        "promptExtra": str(saved.get("promptExtra") or "")[:500],
+    }
+
+
+def apply_settings(settings):
+    global PRICE_INPUT_USD, PRICE_OUTPUT_USD, USD_TO_CNY
+    pipeline.configure(
+        provider=settings["provider"],
+        model=settings["model"],
+        endpoint=settings["endpoint"],
+        api_key=settings["apiKey"],
+    )
+    PRICE_INPUT_USD = settings["priceInputUsd"]
+    PRICE_OUTPUT_USD = settings["priceOutputUsd"]
+    USD_TO_CNY = settings["usdToCny"]
+    return settings
+
+
+def public_settings(settings):
+    return {
+        "provider": settings["provider"],
+        "model": settings["model"],
+        "endpoint": settings["endpoint"],
+        "keyConfigured": bool(settings["apiKey"]),
+        "keySource": settings["keySource"],
+        "prices": {
+            "inputUsd": settings["priceInputUsd"],
+            "outputUsd": settings["priceOutputUsd"],
+            "usdToCny": settings["usdToCny"],
+        },
+        "content": {
+            "style": settings["contentStyle"],
+            "tone": settings["captionTone"],
+            "extra": settings["promptExtra"],
+        },
+    }
+
+
+def save_settings(payload):
+    current = load_settings()
+    provider = str(payload.get("provider", current["provider"])).lower()
+    if provider not in ("demo", "dashscope"):
+        raise ValueError("provider must be demo or dashscope")
+
+    model = str(payload.get("model", current["model"])).strip()
+    endpoint = str(payload.get("endpoint", current["endpoint"])).strip().rstrip("/")
+    if not model:
+        raise ValueError("model is required")
+    if not endpoint.startswith(("http://", "https://")):
+        raise ValueError("endpoint must be an http(s) URL")
+
+    style = str(payload.get("contentStyle", current["contentStyle"]))
+    if style not in CONTENT_STYLES:
+        raise ValueError("unknown content style")
+    tone = str(payload.get("captionTone", current["captionTone"]))
+    if tone not in CAPTION_TONES:
+        raise ValueError("unknown caption tone")
+
+    input_price = _safe_float(payload.get("priceInputUsd"), current["priceInputUsd"])
+    output_price = _safe_float(payload.get("priceOutputUsd"), current["priceOutputUsd"])
+    rate = _safe_float(payload.get("usdToCny"), current["usdToCny"])
+
+    if payload.get("clearKey"):
+        api_key = ""
+        key_written = True
+    else:
+        new_key = str(payload.get("apiKey", "")).strip()
+        api_key = new_key or current["apiKey"]
+        key_written = bool(new_key)
+
+    effective = {
+        "provider": provider,
+        "model": model,
+        "endpoint": endpoint,
+        "apiKey": api_key,
+        "keySource": "none" if payload.get("clearKey") else ("settings" if key_written else current["keySource"]),
+        "priceInputUsd": input_price,
+        "priceOutputUsd": output_price,
+        "usdToCny": rate,
+        "contentStyle": style,
+        "captionTone": tone,
+        "promptExtra": str(payload.get("promptExtra", current["promptExtra"]))[:500],
+    }
+
+    file_data = {
+        "provider": provider,
+        "model": model,
+        "endpoint": endpoint,
+        "priceInputUsd": input_price,
+        "priceOutputUsd": output_price,
+        "usdToCny": rate,
+        "contentStyle": style,
+        "captionTone": tone,
+        "promptExtra": effective["promptExtra"],
+    }
+    if payload.get("clearKey"):
+        file_data["apiKey"] = ""
+    elif key_written:
+        file_data["apiKey"] = api_key
+    elif "apiKey" in _read_settings_file():
+        file_data["apiKey"] = current["apiKey"]
+
+    DATA.mkdir(parents=True, exist_ok=True)
+    tmp = SETTINGS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(file_data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(SETTINGS_PATH)
+    apply_settings(effective)
+    return effective
 
 JOB_QUEUE: "queue.Queue[str]" = queue.Queue()
 DB_LOCK = threading.Lock()
@@ -213,7 +376,7 @@ def create_order(payload: dict) -> dict:
     with db() as conn:
         conn.execute(
             "INSERT INTO orders (id, status, pack_json, character_path, provider, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
-            (order_id, "queued", json.dumps(pack, ensure_ascii=False), character_path, PROVIDER, stamp, stamp),
+            (order_id, "queued", json.dumps(pack, ensure_ascii=False), character_path, pipeline.IMAGE_PROVIDER, stamp, stamp),
         )
         for index, state in enumerate(states):
             conn.execute(
@@ -227,7 +390,7 @@ def create_order(payload: dict) -> dict:
                     str(state.get("action") or ""),
                     str(state.get("prompt") or ""),
                     "queued",
-                    1 if PROVIDER == "demo" else 0,
+                    1 if pipeline.IMAGE_PROVIDER == "demo" else 0,
                 ),
             )
     return get_order(order_id)
@@ -433,7 +596,7 @@ def usage_summary() -> dict:
         done_items = conn.execute("SELECT COUNT(*) AS n FROM items WHERE status='done'").fetchone()["n"]
 
     return {
-        "provider": PROVIDER,
+        "provider": pipeline.IMAGE_PROVIDER,
         "model": pipeline.DASHSCOPE_MODEL,
         "currency": "CNY",
         "price": {
@@ -470,7 +633,7 @@ def process_order(order_id: str):
     update_order(order_id, "generating")
 
     try:
-        if PROVIDER == "demo":
+        if pipeline.IMAGE_PROVIDER == "demo":
             copy_demo_assets(order_dir)
             for index, item in enumerate(order["items"]):
                 update_item(order_id, item["id"], status="generating", error=None)
@@ -666,6 +829,9 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/usage":
             self.send_json(usage_summary())
             return
+        if path == "/api/settings":
+            self.send_json(public_settings(load_settings()))
+            return
         if path == "/api/orders":
             with db() as conn:
                 rows = conn.execute("SELECT id FROM orders ORDER BY created_at DESC LIMIT 50").fetchall()
@@ -726,6 +892,14 @@ class Handler(SimpleHTTPRequestHandler):
             order = create_order(payload)
             self.send_json(order, 201)
             return
+        if path == "/api/settings":
+            try:
+                settings = save_settings(payload)
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 400)
+                return
+            self.send_json(public_settings(settings))
+            return
         match = re.match(r"^/api/orders/([^/]+)/generate$", path)
         if match:
             order = get_order(match.group(1))
@@ -759,6 +933,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 def main():
     init_db()
+    apply_settings(load_settings())
     pipeline.set_call_logger(record_api_call)
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
@@ -777,7 +952,7 @@ def main():
 
     url = f"http://127.0.0.1:{port}/"
     print(f"旗袍表情工坊 backend: {url}")
-    print(f"provider: {PROVIDER} | model: {pipeline.DASHSCOPE_MODEL} | key: {'yes' if pipeline.DASHSCOPE_KEY else 'no'}")
+    print(f"provider: {pipeline.IMAGE_PROVIDER} | model: {pipeline.DASHSCOPE_MODEL} | key: {'yes' if pipeline.DASHSCOPE_KEY else 'no'}")
     print("按 Ctrl+C 停止。")
     if os.environ.get("STUDIO_NO_BROWSER") != "1":
         try:

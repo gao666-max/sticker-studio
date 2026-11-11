@@ -57,18 +57,34 @@
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
+  var STYLE_LINES = {
+    cute: "cute cartoon sticker, thick clean dark outlines, flat colors, warm 1990s Chinese retro palette",
+    soft: "soft hand-drawn illustration, gentle paper texture, muted warm palette, delicate linework",
+    bold: "exaggerated cartoon comedy, bold shapes, high-energy poses, bright saturated colors"
+  };
+  var TONE_LINES = {
+    short: "short, punchy, two to four characters, everyday WeChat chat",
+    warm: "gentle and conversational, like a kind aunt talking to family",
+    playful: "playful and slightly teasing, with a sense of humor"
+  };
+  var contentSettings = { style: "cute", tone: "short", extra: "" };
+
   function buildPrompt(s) {
     var action = (s.action || "自然微笑，轻轻点头").trim();
     var caption = (s.caption || s.word || "").trim();
+    var styleLine = STYLE_LINES[contentSettings.style] || STYLE_LINES.cute;
+    var toneLine = TONE_LINES[contentSettings.tone] || TONE_LINES.short;
     return "Use the character in the reference image exactly: same face, same hair, same outfit, same accessories, same line style. Do not redesign the character.\n\n" +
-      "Draw ONE square image: exactly 4 columns x 4 rows = 16 equal square cells. Read left to right, top to bottom, each cell is the next frame of one short looping animation. No grid lines, no borders, no numbers.\n\n" +
-      "Background must be truly transparent (PNG alpha). Do NOT paint a grey-and-white checkerboard pattern.\n\n" +
-      "In every cell the character stays exactly the same size and on the same ground line, fully inside the cell with at least 8% empty margin on all four sides.\n\n" +
+      "Draw ONE square image: exactly 4 columns x 4 rows = 16 equal square cells. Read left to right, top to bottom, each cell is the next frame of one short looping animation. No grid lines, no borders, no numbers. Every one of the 16 cells must contain the character; no empty cells.\n\n" +
+      "Background must be truly transparent (PNG alpha). Do NOT paint a grey-and-white checkerboard pattern, a solid beige background, or any background decoration.\n\n" +
+      "In every cell the character stays exactly the same size and on the same ground line, fully inside the cell with at least 8% empty margin on all four sides. No cropped feet, no duplicated limbs, no extra people.\n\n" +
       "Row 1 (frames 1-4): " + action + "，动作开始。\n" +
       "Row 2 (frames 5-8): " + action + "，动作展开。\n" +
       "Row 3 (frames 9-12): " + action + "，情绪最满。\n" +
       "Row 4 (frames 13-16): 回到起始姿势，第 16 帧接回第 1 帧。\n\n" +
-      "Every cell has the same bold hand-lettered caption \"" + caption + "\" at the bottom, with a thick white sticker outline around both the caption and the character. No other text.\n\n" +
+      "Every cell has the same bold hand-lettered caption \"" + caption + "\" at the bottom, with a thick white sticker outline around both the caption and the character. The only text in the image is that exact Simplified Chinese caption. Check every character; no wrong characters, no extra words, no English.\n\n" +
+      "Art direction: " + styleLine + ". The caption should feel " + toneLine + ".\n" +
+      (contentSettings.extra ? "Extra client note: " + contentSettings.extra + "\n" : "") + "\n" +
       "Absolutely no watermark, no logo, no signature, no \"AI generated\" mark anywhere in the image.";
   }
 
@@ -142,6 +158,7 @@
     assets: null
   };
   var usage = { enabled: false, data: null };
+  var settingsData = null;
 
   var els = {
     body: document.body,
@@ -171,6 +188,23 @@
     mobileRailBtn: document.getElementById("mobileRailBtn"),
     backendNote: document.getElementById("backendNote"),
     usageBtn: document.getElementById("usageBtn"),
+    settingsBtn: document.getElementById("settingsBtn"),
+    settingsModal: document.getElementById("settingsModal"),
+    settingsClose: document.getElementById("settingsClose"),
+    settingsCancel: document.getElementById("settingsCancel"),
+    settingsSave: document.getElementById("settingsSave"),
+    settingsKeyNote: document.getElementById("settingsKeyNote"),
+    setProvider: document.getElementById("setProvider"),
+    setModel: document.getElementById("setModel"),
+    setEndpoint: document.getElementById("setEndpoint"),
+    setKey: document.getElementById("setKey"),
+    setClearKey: document.getElementById("setClearKey"),
+    setInputPrice: document.getElementById("setInputPrice"),
+    setOutputPrice: document.getElementById("setOutputPrice"),
+    setRate: document.getElementById("setRate"),
+    setStyle: document.getElementById("setStyle"),
+    setTone: document.getElementById("setTone"),
+    setExtra: document.getElementById("setExtra"),
     usageInline: document.getElementById("usageInline"),
     usageModal: document.getElementById("usageModal"),
     orderRef: document.getElementById("orderRef"),
@@ -796,6 +830,107 @@
     els.usageModal.classList.remove("is-open");
     els.usageModal.setAttribute("aria-hidden", "true");
     closeOverlay();
+  }
+
+  function applyContentSettings(settings) {
+    if (!settings || !settings.content) return;
+    contentSettings.style = settings.content.style || "cute";
+    contentSettings.tone = settings.content.tone || "short";
+    contentSettings.extra = settings.content.extra || "";
+    app.states.forEach(function (state) {
+      if (!state.promptCustom) state.prompt = buildPrompt(state);
+    });
+    save();
+    renderAll();
+  }
+
+  function fillSettingsForm(settings) {
+    settingsData = settings;
+    els.setProvider.value = settings.provider;
+    els.setModel.value = settings.model;
+    els.setEndpoint.value = settings.endpoint;
+    els.setInputPrice.value = settings.prices.inputUsd;
+    els.setOutputPrice.value = settings.prices.outputUsd;
+    els.setRate.value = settings.prices.usdToCny;
+    els.setStyle.value = settings.content.style;
+    els.setTone.value = settings.content.tone;
+    els.setExtra.value = settings.content.extra || "";
+    els.setKey.value = "";
+    els.setClearKey.checked = false;
+    var source = { settings: "本机设置", env: "环境变量或本机 DSH", none: "无" }[settings.keySource] || settings.keySource;
+    els.settingsKeyNote.textContent = settings.keyConfigured
+      ? "Key 已配置，来源：" + source + "。留空不修改。"
+      : "Key 未配置。真实生成前必须填写。";
+  }
+
+  async function fetchSettings() {
+    if (!backend.enabled) return null;
+    try {
+      var settings = await apiGet("/api/settings");
+      settingsData = settings;
+      backend.provider = settings.provider;
+      backend.model = settings.model;
+      backend.keyConfigured = settings.keyConfigured;
+      applyContentSettings(settings);
+      updateBackendNote();
+      return settings;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function openSettings() {
+    var settings = await fetchSettings();
+    if (!settings) {
+      toast("后端未连接，无法读取设置");
+      return;
+    }
+    fillSettingsForm(settings);
+    els.settingsModal.classList.add("is-open");
+    els.settingsModal.setAttribute("aria-hidden", "false");
+    openOverlay();
+  }
+
+  function closeSettings() {
+    els.settingsModal.classList.remove("is-open");
+    els.settingsModal.setAttribute("aria-hidden", "true");
+    closeOverlay();
+  }
+
+  async function saveSettings() {
+    if (!backend.enabled) {
+      toast("后端未连接，无法保存设置");
+      return;
+    }
+    var payload = {
+      provider: els.setProvider.value,
+      model: els.setModel.value.trim(),
+      endpoint: els.setEndpoint.value.trim(),
+      priceInputUsd: Number(els.setInputPrice.value),
+      priceOutputUsd: Number(els.setOutputPrice.value),
+      usdToCny: Number(els.setRate.value),
+      contentStyle: els.setStyle.value,
+      captionTone: els.setTone.value,
+      promptExtra: els.setExtra.value.trim()
+    };
+    if (els.setKey.value.trim()) payload.apiKey = els.setKey.value.trim();
+    if (els.setClearKey.checked) payload.clearKey = true;
+    try {
+      var settings = await apiPost("/api/settings", payload);
+      settingsData = settings;
+      backend.provider = settings.provider;
+      backend.model = settings.model;
+      backend.keyConfigured = settings.keyConfigured;
+      applyContentSettings(settings);
+      updateBackendNote();
+      fillSettingsForm(settings);
+      renderRail();
+      closeSettings();
+      fetchUsage();
+      toast("设置已保存，立即生效");
+    } catch (e) {
+      toast("保存失败：" + (e && e.message ? e.message : "未知错误"));
+    }
   }
 
   function createBackendOrder(states) {
@@ -1472,6 +1607,10 @@
     els.usageBtn.addEventListener("click", openUsage);
     els.usageInline.addEventListener("click", openUsage);
     els.usageClose.addEventListener("click", closeUsage);
+    els.settingsBtn.addEventListener("click", openSettings);
+    els.settingsClose.addEventListener("click", closeSettings);
+    els.settingsCancel.addEventListener("click", closeSettings);
+    els.settingsSave.addEventListener("click", saveSettings);
 
     document.getElementById("newOrderBtn").addEventListener("click", newOrder);
     els.mobileRailBtn.addEventListener("click", function () {
@@ -1483,6 +1622,7 @@
       else if (els.stateModal.classList.contains("is-open")) closeStateModal();
       else if (els.submitModal.classList.contains("is-open")) closeSubmit();
       else if (els.usageModal.classList.contains("is-open")) closeUsage();
+      else if (els.settingsModal.classList.contains("is-open")) closeSettings();
       else if (els.devModal.classList.contains("is-open")) closeDev();
     });
 
@@ -1492,6 +1632,7 @@
       else if (els.stateModal.classList.contains("is-open")) closeStateModal();
       else if (els.submitModal.classList.contains("is-open")) closeSubmit();
       else if (els.usageModal.classList.contains("is-open")) closeUsage();
+      else if (els.settingsModal.classList.contains("is-open")) closeSettings();
       else if (els.devModal.classList.contains("is-open")) closeDev();
     });
   }
@@ -1501,7 +1642,7 @@
     setMode(app.mode);
     renderAll();
     bindEvents();
-    checkBackend();
+    checkBackend().then(fetchSettings);
     if (window.location.protocol === "file:") {
       els.downloadNote.textContent = "当前是 file://，浏览器不能打包本地文件。请用 start-studio.bat 启动后端后再下载 ZIP。";
     }

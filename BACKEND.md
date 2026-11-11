@@ -122,6 +122,36 @@ GET /api/usage
 
 每次真实 DashScope 调用都会写入 `api_calls` 表，由 `pipeline.py` 的 `CALL_LOGGER` 上报。金额按 `DASHSCOPE_PRICE_INPUT_USD`、`DASHSCOPE_PRICE_OUTPUT_USD` 与 `USD_TO_CNY` 估算，失败请求按 0 计。演示模式不调用模型，因此 API 次数与成本为 0。
 
+### 7. 后台设置
+
+```http
+GET /api/settings
+```
+
+返回非敏感配置：provider、model、endpoint、Key 是否已配置、价格、内容风格与字幕语气。**不返回 Key 内容。**
+
+```http
+POST /api/settings
+{
+  "provider": "dashscope",
+  "model": "qwen-image-3.0",
+  "endpoint": "https://dashscope.aliyuncs.com/api/v1",
+  "apiKey": "optional-new-key",
+  "priceInputUsd": 0.00275,
+  "priceOutputUsd": 0.024754,
+  "usdToCny": 7.1,
+  "contentStyle": "cute",
+  "captionTone": "short",
+  "promptExtra": ""
+}
+```
+
+- `apiKey` 留空表示不修改
+- `clearKey: true` 清除已保存的 Key
+- 保存后立即生效，无需重启
+- Key 写入本机 `data/settings.json`，`data/` 已 gitignore
+- 当前只适配 DashScope 兼容接口，其他厂商需要在 `pipeline.py` 增加 adapter
+
 ## Worker 生成流程
 
 1. 角色图 → 1024 透明底卡通锚点。

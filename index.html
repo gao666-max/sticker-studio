@@ -106,6 +106,7 @@
         <div><p class="kicker">PRODUCTION</p><h2>状态看板</h2></div>
         <div class="head-actions">
           <span class="panel-note" id="modeNote">工作室视图</span>
+          <button type="button" class="mini-btn studio-only" id="settingsBtn">设置</button>
           <button type="button" class="mini-btn studio-only" id="usageBtn">用量 / 成本</button>
         </div>
       </div>
@@ -279,6 +280,65 @@
       <div><h3>最近调用</h3><div class="usage-recent" id="usageRecent"></div></div>
     </div>
     <p class="usage-foot">按 <a href="https://www.alibabacloud.com/help/zh/model-studio/qwen-image-3-0" target="_blank" rel="noopener">qwen-image-3.0 官方单价</a> 估算：输出 $0.024754/张，输入图 $0.00275/张。实际以百炼账单为准；失败请求按 0 计。</p>
+  </div>
+</div>
+
+<div class="modal" id="settingsModal" aria-hidden="true">
+  <div class="modal-card settings-card">
+    <div class="modal-head">
+      <div><p class="kicker">SETTINGS</p><h2>接口与内容</h2></div>
+      <button type="button" class="icon-btn" id="settingsClose" aria-label="关闭">×</button>
+    </div>
+    <p class="modal-note" id="settingsKeyNote">正在读取配置...</p>
+    <div class="form-grid">
+      <label>生成方式
+        <select id="setProvider">
+          <option value="demo">Demo · 示例素材，不扣费</option>
+          <option value="dashscope">DashScope · 真实生成</option>
+        </select>
+      </label>
+      <label>模型
+        <input id="setModel" type="text" placeholder="qwen-image-3.0">
+      </label>
+      <label class="full">Base URL
+        <input id="setEndpoint" type="text" placeholder="https://dashscope.aliyuncs.com/api/v1">
+      </label>
+      <label class="full">API Key
+        <input id="setKey" type="password" placeholder="留空表示不修改" autocomplete="new-password">
+      </label>
+      <label class="full settings-check"><input id="setClearKey" type="checkbox"> 清除已保存的 Key</label>
+      <label>输入图单价 USD
+        <input id="setInputPrice" type="number" min="0" step="0.000001">
+      </label>
+      <label>输出图单价 USD
+        <input id="setOutputPrice" type="number" min="0" step="0.000001">
+      </label>
+      <label>USD → CNY
+        <input id="setRate" type="number" min="0" step="0.01">
+      </label>
+      <label>内容风格
+        <select id="setStyle">
+          <option value="cute">可爱贴纸 · 粗描边平涂</option>
+          <option value="soft">温柔手绘 · 柔和纸感</option>
+          <option value="bold">夸张搞笑 · 大动作</option>
+        </select>
+      </label>
+      <label>字幕语气
+        <select id="setTone">
+          <option value="short">短词 · 两到四个字</option>
+          <option value="warm">温柔 · 像在说话</option>
+          <option value="playful">俏皮 · 带一点玩笑</option>
+        </select>
+      </label>
+      <label class="full">额外内容要求
+        <textarea id="setExtra" maxlength="500" placeholder="例如：每张都保留珍珠项链，手势夸张一点，字幕要大"></textarea>
+      </label>
+    </div>
+    <p class="modal-note">保存后立即生效。当前只适配 DashScope 兼容接口，其他厂商需要新增 adapter。Key 只写入本机 <code>data/settings.json</code>，不会返回浏览器，也不会进 Git。改接口后建议先生成 1 张测试。</p>
+    <div class="modal-foot">
+      <button type="button" class="btn" id="settingsCancel">取消</button>
+      <button type="button" class="btn primary" id="settingsSave">保存设置</button>
+    </div>
   </div>
 </div>
 

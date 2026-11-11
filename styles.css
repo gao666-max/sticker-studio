@@ -410,6 +410,16 @@ a{color:inherit}
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .usage-card{width:min(790px,100%)}
+.settings-card{width:min(720px,100%)}
+.settings-card code{
+  font-family:var(--mono);font-size:9px;
+  background:var(--paper-3);padding:1px 4px;
+}
+.settings-check{
+  display:flex!important;align-items:center;gap:6px;
+  font-family:var(--mono);font-size:9px;color:var(--ink-3);
+}
+.settings-check input{width:auto!important;margin:0!important}
 .usage-hero{
   display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
   border:1px solid var(--ink);margin:12px 0 8px;

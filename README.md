@@ -73,6 +73,25 @@ USE_DSH_CREDENTIALS=0
 
 确认后才会计费。
 
+## 后台设置
+
+状态看板右上角有「设置」，不用改 `.env` 也能改：
+
+- 生成方式：`Demo` 或 `DashScope`
+- 模型、Base URL、API Key
+- 输入图 / 输出图单价、USD 到 CNY 汇率
+- 内容风格：可爱贴纸、温柔手绘、夸张搞笑
+- 字幕语气：短词、温柔、俏皮
+- 额外内容要求，例如「保留珍珠项链，手势夸张」
+
+保存后立即生效。Key 只写本机 `data/settings.json`，接口不会把 Key 返回给浏览器，`data/` 也在 `.gitignore` 里。
+
+内容风格、字幕语气和额外要求会直接重写**没有手动改过**的提示词。已经手动改过的提示词会保留，不会被覆盖。
+
+当前只适配 DashScope 兼容接口。要接 OpenAI、即梦或其他厂商，需要在 `pipeline.py` 里新增 adapter。
+
+![后台设置](docs/settings.png)
+
 ## 成本统计
 
 `GET /api/usage` 返回累计、今日、本月、近 14 天、按类型、最近调用与预估成本。
@@ -113,6 +132,8 @@ sticker-studio/
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/health` | 后端状态、provider、Key 是否配置 |
+| GET | `/api/settings` | 非敏感设置、Key 是否配置 |
+| POST | `/api/settings` | 保存 provider、模型、Key、价格、内容风格 |
 | GET | `/api/usage` | 调用次数、成本、趋势、最近调用 |
 | GET | `/api/orders` | 最近订单 |
 | POST | `/api/orders` | 创建订单，角色图 + pack + states |
