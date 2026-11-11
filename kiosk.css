@@ -70,6 +70,13 @@ h1{
   font-family:var(--mono);font-size:9px;color:var(--ink-2);
 }
 .hardware-hint i{width:8px;height:8px;background:var(--red);border-radius:50%;box-shadow:0 0 0 4px rgba(200,69,45,.12)}
+.portrait-pick{display:flex;gap:6px;margin-top:14px}
+.portrait-pick button{
+  border:1px solid var(--line-strong);background:transparent;padding:8px 12px;
+  font-family:var(--mono);font-size:9px;color:var(--ink-2);
+}
+.portrait-pick button.is-on{background:var(--ink);border-color:var(--ink);color:var(--paper-2)}
+.portrait-pick button:hover{border-color:var(--ink)}
 .preview-side{display:flex;flex-direction:column;align-items:center;gap:16px}
 .camera{
   position:relative;width:100%;aspect-ratio:4/3;background:#1d1711;

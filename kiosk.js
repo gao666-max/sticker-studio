@@ -34,6 +34,7 @@
   let audioContext = null;
   let stream = null;
   let counting = false;
+  let portraitMode = "bust";
 
   const camera = $("camera");
   const canvas = $("captureCanvas");
@@ -191,7 +192,7 @@
       const created = await request("/api/kiosk/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ photo: data })
+        body: JSON.stringify({ photo: data, portraitMode: portraitMode })
       });
       session = created;
       pollSession();
@@ -507,6 +508,18 @@
       } catch (e) {
         toastMessage(e.message);
       }
+    });
+    $("portraitPick").querySelectorAll("button").forEach((button) => {
+      button.addEventListener("click", () => {
+        portraitMode = button.dataset.mode;
+        $("portraitPick").querySelectorAll("button").forEach((item) => {
+          item.classList.toggle("is-on", item.dataset.mode === portraitMode);
+        });
+        $("framingHint").textContent = portraitMode === "bust"
+          ? "近景自拍选半身，只做到胸口，不会乱造身体。"
+          : "全身模式请退后，确认头和鞋子都在画面里。";
+        beep(520, 0.04);
+      });
     });
     $("processRetake").addEventListener("click", resetToPreview);
     $("confirmCharacter").addEventListener("click", confirmCharacter);

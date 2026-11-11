@@ -103,7 +103,9 @@ USE_DSH_CREDENTIALS=0
 - 摄像头实时预览，实体快门 / 空格键拍照
 - 角色生成有进度、失败重试、重拍
 - 旋钮用方向键 / 滚轮模拟，高亮同步，确认才提交
-- GIF 默认 `KIOSK_GIF_MODE=motion`，角色 PNG + 程序化动作，约 1 到 2 秒
+- 近景默认半身贴纸，可切全身，避免模型给自拍硬编一个身体
+- GIF 默认 `KIOSK_GIF_MODE=keypose`，先生成 AI 动作关键姿势，再做轻动效，约 30 到 60 秒
+- `KIOSK_GIF_MODE=motion` 最快，1 到 2 秒，但动作是程序化位移
 - AI 4×4 GIF 设 `KIOSK_GIF_MODE=ai`，更慢
 - 二维码绑定唯一 token，30 分钟有效，领取页可下载 / 分享
 - 手机扫码需要 `STUDIO_HOST=0.0.0.0` 和 `PUBLIC_BASE_URL`

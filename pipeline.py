@@ -344,6 +344,33 @@ CHARACTER_PROMPT = (
     "no shadow, no floor, no props, no text, no border."
 )
 
+CHARACTER_PROMPT_BUST = (
+    "Turn this photo into a high-quality cute cartoon sticker of the SAME person, head and shoulders only. "
+    "Preserve the exact identity: face shape, eye shape, eyebrows, nose, lips, age, skin tone, hairstyle, hairline, "
+    "glasses if present, and the clothing visible at the shoulders. Do not invent a different body, do not slim, "
+    "do not beautify, do not change gender or age, do not add legs or a full body. "
+    "Cute but recognizable caricature, thick clean dark outlines, flat colors, soft shading, warm palette. "
+    "Plain uniform pure white (#FFFFFF) background, centered, no props, no text, no border, no watermark."
+)
+
+
+def detect_face_ratio(image_path: Path) -> float:
+    """Return the largest frontal face width as a fraction of image width."""
+    try:
+        image = cv2.imread(str(image_path))
+        if image is None:
+            return 0.0
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        )
+        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
+        if len(faces) == 0:
+            return 0.0
+        return float(max(w for (x, y, w, h) in faces) / image.shape[1])
+    except Exception:
+        return 0.0
+
 ASSET_PROMPTS = {
     "cover": (
         "Use the character in the reference image exactly. Clean front-facing half-body portrait, "
@@ -373,12 +400,20 @@ ASSET_PROMPTS = {
 
 
 def generate_character(photo_path: Path, out_dir: Path, context: dict | None = None,
-                       strict: bool = False) -> Path:
+                       strict: bool = False, portrait_mode: str | None = None) -> Path:
     raw = out_dir / "character_raw.png"
     clean = out_dir / "character.png"
     ctx = dict(context or {})
     ctx.setdefault("kind", "character")
-    generate_image(CHARACTER_PROMPT, raw, reference=photo_path, context=ctx)
+    face_ratio = detect_face_ratio(photo_path)
+    ctx["face_ratio"] = round(face_ratio, 3)
+    if portrait_mode in ("bust", "full"):
+        mode = portrait_mode
+    else:
+        mode = "bust" if face_ratio >= 0.28 else "full"
+    ctx["portrait_mode"] = mode
+    prompt = CHARACTER_PROMPT_BUST if mode == "bust" else CHARACTER_PROMPT
+    generate_image(prompt, raw, reference=photo_path, context=ctx)
     cut = remove_background(Image.open(raw))
     final = finalize_character(cut)
     quality = character_quality(final)
@@ -431,6 +466,43 @@ def _draw_heart(draw, x, y, size, color):
 def _draw_sparkle(draw, x, y, size, color):
     draw.line((x - size, y, x + size, y), fill=color, width=3)
     draw.line((x, y - size, x, y + size), fill=color, width=3)
+
+
+KIOSK_POSE_PROMPTS = {
+    "receive": "one hand giving a big thumbs up, the other hand on the hip, confident happy smile",
+    "ok": "one hand making an OK sign beside the cheek, head tilted, playful wink",
+    "thanks": "both hands clasped in front of the chest, a small grateful bow, warm smile",
+    "love": "holding a big red heart with both hands in front of the chest, warm happy smile, head slightly tilted",
+    "night": "hugging a small pillow, sleepy eyes, a small yawn, gentle good-night mood",
+    "laugh": "head tilted back laughing, one hand on the belly, joyful expression",
+}
+
+
+def generate_kiosk_keypose(character_path: Path, action: dict, out_dir: Path,
+                           context: dict | None = None) -> Path:
+    """One AI action pose, later animated by the fast motion renderer."""
+    action_id = str(action.get("id") or "receive")
+    pose = KIOSK_POSE_PROMPTS.get(action_id, KIOSK_POSE_PROMPTS["receive"])
+    prompt = (
+        "Use the character in the reference image exactly: same face, same hair, same clothing, "
+        "same age, same line style. Do not redesign the character. Draw ONE cute cartoon sticker, "
+        "same framing as the reference character, upper body if the reference is a bust, with this action: "
+        + pose + ". Preserve the identifying facial features. Plain pure white (#FFFFFF) background, "
+        "thick clean dark outline, flat colors, warm palette, no text, no border, no watermark."
+    )
+    raw = out_dir / "pose_raw.png"
+    clean = out_dir / "pose.png"
+    ctx = dict(context or {})
+    ctx.setdefault("kind", "keypose")
+    ctx["state_id"] = action_id
+    generate_image(prompt, raw, reference=character_path, context=ctx)
+    cut = remove_background(Image.open(raw))
+    final = finalize_character(cut)
+    quality = character_quality(final)
+    if not quality["ok"]:
+        raise CharacterQualityError(f"动作姿势质检失败：coverage={quality['coverage']}")
+    final.save(clean)
+    return clean
 
 
 def _encode_frames(frames, target: Path, duration: int = 120):

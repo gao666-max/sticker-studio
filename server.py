@@ -367,6 +367,7 @@ def init_db():
                 character_path TEXT,
                 gif_path TEXT,
                 action_json TEXT,
+                portrait_mode TEXT NOT NULL DEFAULT 'bust',
                 error TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -374,6 +375,9 @@ def init_db():
             );
             """
         )
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(kiosk_sessions)").fetchall()]
+        if "portrait_mode" not in columns:
+            conn.execute("ALTER TABLE kiosk_sessions ADD COLUMN portrait_mode TEXT NOT NULL DEFAULT 'bust'")
 
 
 def save_data_url(data_url: str | None, target_stem: str, target_dir: Path) -> str | None:
@@ -812,13 +816,16 @@ def serialize_kiosk(row, base_url: str) -> dict:
         "qr_url": f"/api/kiosk/sessions/{kiosk_id}/qr.png",
         "claim_path": f"/claim/{token}",
         "claim_url": f"{base_url}/claim/{token}",
+        "portrait_mode": row["portrait_mode"] or "bust",
         "expires_at": expires,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
 
 
-def create_kiosk_session(photo_data: str | None) -> dict:
+def create_kiosk_session(photo_data: str | None, portrait_mode: str = "bust") -> dict:
+    if portrait_mode not in ("bust", "full"):
+        portrait_mode = "bust"
     kiosk_id = "ks_" + uuid.uuid4().hex[:10]
     token = uuid.uuid4().hex[:12]
     session_dir = KIOSK_DIR / kiosk_id
@@ -829,8 +836,8 @@ def create_kiosk_session(photo_data: str | None) -> dict:
     stamp = now()
     with db() as conn:
         conn.execute(
-            "INSERT INTO kiosk_sessions (id, token, status, photo_path, created_at, updated_at) VALUES (?,?,?,?,?,?)",
-            (kiosk_id, token, "character_queued", photo, stamp, stamp),
+            "INSERT INTO kiosk_sessions (id, token, status, photo_path, portrait_mode, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+            (kiosk_id, token, "character_queued", photo, portrait_mode, stamp, stamp),
         )
     KIOSK_QUEUE.put(("character", kiosk_id, {}))
     return serialize_kiosk(get_kiosk(kiosk_id=kiosk_id), kiosk_base())
@@ -857,6 +864,7 @@ def process_kiosk(kind: str, kiosk_id: str, payload: dict):
                     session_dir,
                     context={"kiosk_id": kiosk_id, "kind": "character"},
                     strict=True,
+                    portrait_mode=row["portrait_mode"] or "bust",
                 )
             update_kiosk(kiosk_id, status="character_ready", character_path="character.png")
 
@@ -876,7 +884,8 @@ def process_kiosk(kind: str, kiosk_id: str, payload: dict):
                     raise ValueError("角色图还没有生成")
                 target = session_dir / "files" / "01.gif"
                 target.parent.mkdir(parents=True, exist_ok=True)
-                if os.environ.get("KIOSK_GIF_MODE", "motion") == "ai":
+                mode = os.environ.get("KIOSK_GIF_MODE", "keypose")
+                if mode == "ai":
                     prompt = action.get("prompt") or (
                         "Use the character in the reference image exactly. Create a 4x4 sprite sheet, "
                         "16 equal square frames, one short looping animation. Truly transparent background, "
@@ -889,6 +898,17 @@ def process_kiosk(kind: str, kiosk_id: str, payload: dict):
                         1,
                         context={"kiosk_id": kiosk_id, "state_id": action.get("id")},
                     )
+                elif mode == "keypose":
+                    try:
+                        pose = pipeline.generate_kiosk_keypose(
+                            character,
+                            action,
+                            session_dir,
+                            context={"kiosk_id": kiosk_id, "state_id": action.get("id")},
+                        )
+                        pipeline.render_kiosk_gif(pose, action, target)
+                    except Exception:
+                        pipeline.render_kiosk_gif(character, action, target)
                 else:
                     pipeline.render_kiosk_gif(character, action, target)
             expires = (datetime.now(timezone.utc) + timedelta(minutes=KIOSK_EXPIRY_MINUTES)).isoformat(timespec="seconds")
@@ -1190,7 +1210,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if path == "/api/kiosk/sessions":
             try:
-                session = create_kiosk_session(payload.get("photo"))
+                session = create_kiosk_session(payload.get("photo"), payload.get("portraitMode", "bust"))
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
                 return
