@@ -152,6 +152,24 @@ POST /api/settings
 - Key 写入本机 `data/settings.json`，`data/` 已 gitignore
 - 当前只适配 DashScope 兼容接口，其他厂商需要在 `pipeline.py` 增加 adapter
 
+### 8. 现场拍照亭
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/kiosk/sessions` | 创建会话，body `{photo: dataURL}` |
+| GET | `/api/kiosk/sessions/{id}` | 查询状态、角色、GIF、二维码 |
+| POST | `/api/kiosk/sessions/{id}/retry-character` | 重新生成角色 |
+| POST | `/api/kiosk/sessions/{id}/gif` | 提交动作，body `{action}` |
+| POST | `/api/kiosk/sessions/{id}/refresh` | 刷新二维码与有效期 |
+| GET | `/api/kiosk/sessions/{id}/qr.png` | 领取二维码 |
+| GET | `/api/claims/{token}` | 领取页数据 |
+| GET | `/api/claims/{token}/download` | 下载 GIF |
+| GET | `/claim/{token}` | 手机领取页 |
+
+Kiosk 状态：`character_queued / character_processing / character_ready / character_failed / gif_queued / gif_generating / gif_ready / gif_failed / expired`。
+
+角色统一输出 1024×1024 RGBA，严格模式会做 alpha 覆盖率检查。GIF 默认用 `KIOSK_GIF_MODE=motion` 的程序化动作渲染，`ai` 才走 4×4 模型。详见 [KIOSK.md](KIOSK.md)。
+
 ## Worker 生成流程
 
 1. 角色图 → 1024 透明底卡通锚点。

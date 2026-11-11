@@ -37,6 +37,13 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from PIL import Image
+
+try:
+    import qrcode
+except Exception:
+    qrcode = None
+
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -92,8 +99,13 @@ import pipeline  # noqa: E402  (env must be loaded first)
 ROOT = BASE_DIR
 DATA = ROOT / "data"
 ORDERS = DATA / "orders"
+KIOSK_DIR = DATA / "kiosk"
 DB_PATH = DATA / "studio.db"
 DEMO_ASSETS = ROOT / "assets"
+KIOSK_QUEUE: "queue.Queue[tuple]" = queue.Queue()
+KIOSK_EXPIRY_MINUTES = 30
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+STUDIO_HOST = os.environ.get("STUDIO_HOST", "127.0.0.1")
 
 DEMO_MAP = {
     "receive": "gif-01.gif",
@@ -302,6 +314,7 @@ def db():
 def init_db():
     DATA.mkdir(parents=True, exist_ok=True)
     ORDERS.mkdir(parents=True, exist_ok=True)
+    KIOSK_DIR.mkdir(parents=True, exist_ok=True)
     with db() as conn:
         conn.executescript(
             """
@@ -346,23 +359,40 @@ def init_db():
                 cost_cny REAL NOT NULL DEFAULT 0,
                 error TEXT
             );
+            CREATE TABLE IF NOT EXISTS kiosk_sessions (
+                id TEXT PRIMARY KEY,
+                token TEXT UNIQUE NOT NULL,
+                status TEXT NOT NULL,
+                photo_path TEXT,
+                character_path TEXT,
+                gif_path TEXT,
+                action_json TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                expires_at TEXT
+            );
             """
         )
 
 
-def save_character(data_url: str | None, order_dir: Path) -> str | None:
+def save_data_url(data_url: str | None, target_stem: str, target_dir: Path) -> str | None:
     if not data_url:
         return None
     match = re.match(r"^data:image/(png|jpe?g|webp);base64,(.+)$", data_url, re.S)
     if not match:
         return None
     ext = "jpg" if match.group(1) in ("jpeg", "jpg") else match.group(1)
-    target = order_dir / f"character.{ext}"
+    target = target_dir / f"{target_stem}.{ext}"
     try:
         target.write_bytes(base64.b64decode(match.group(2)))
     except Exception:
         return None
     return str(target)
+
+
+def save_character(data_url: str | None, order_dir: Path) -> str | None:
+    return save_data_url(data_url, "character", order_dir)
 
 
 def create_order(payload: dict) -> dict:
@@ -726,6 +756,170 @@ def process_order(order_id: str):
         update_order(order_id, "failed")
 
 
+def get_kiosk(kiosk_id: str | None = None, token: str | None = None):
+    with db() as conn:
+        if kiosk_id:
+            return conn.execute("SELECT * FROM kiosk_sessions WHERE id = ?", (kiosk_id,)).fetchone()
+        return conn.execute("SELECT * FROM kiosk_sessions WHERE token = ?", (token,)).fetchone()
+
+
+def update_kiosk(kiosk_id: str, **fields):
+    if not fields:
+        return
+    keys = ", ".join(f"{key} = ?" for key in fields)
+    values = list(fields.values()) + [kiosk_id]
+    with db() as conn:
+        conn.execute(f"UPDATE kiosk_sessions SET {keys}, updated_at = ? WHERE id = ?", values[:-1] + [now(), kiosk_id])
+
+
+def kiosk_base(handler=None) -> str:
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL
+    if handler is not None:
+        host = handler.headers.get("Host") or f"127.0.0.1:{handler.server.server_port}"
+        return f"http://{host}"
+    return "http://127.0.0.1:8787"
+
+
+def serialize_kiosk(row, base_url: str) -> dict:
+    kiosk_id = row["id"]
+    token = row["token"]
+    expires = row["expires_at"]
+    status = row["status"]
+    if status == "gif_ready" and expires:
+        try:
+            if datetime.fromisoformat(expires) < datetime.now(timezone.utc):
+                status = "expired"
+        except Exception:
+            pass
+    files_dir = KIOSK_DIR / kiosk_id
+    character = files_dir / "character.png"
+    gif = files_dir / "files" / "01.gif"
+    action = None
+    if row["action_json"]:
+        try:
+            action = json.loads(row["action_json"])
+        except Exception:
+            action = None
+    return {
+        "id": kiosk_id,
+        "token": token,
+        "status": status,
+        "error": row["error"],
+        "action": action,
+        "character_url": f"/api/kiosk/sessions/{kiosk_id}/files/character.png" if character.exists() else None,
+        "gif_url": f"/api/kiosk/sessions/{kiosk_id}/files/01.gif" if gif.exists() else None,
+        "qr_url": f"/api/kiosk/sessions/{kiosk_id}/qr.png",
+        "claim_path": f"/claim/{token}",
+        "claim_url": f"{base_url}/claim/{token}",
+        "expires_at": expires,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def create_kiosk_session(photo_data: str | None) -> dict:
+    kiosk_id = "ks_" + uuid.uuid4().hex[:10]
+    token = uuid.uuid4().hex[:12]
+    session_dir = KIOSK_DIR / kiosk_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    photo = save_data_url(photo_data, "photo", session_dir)
+    if not photo:
+        raise ValueError("没有收到有效照片")
+    stamp = now()
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO kiosk_sessions (id, token, status, photo_path, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+            (kiosk_id, token, "character_queued", photo, stamp, stamp),
+        )
+    KIOSK_QUEUE.put(("character", kiosk_id, {}))
+    return serialize_kiosk(get_kiosk(kiosk_id=kiosk_id), kiosk_base())
+
+
+def process_kiosk(kind: str, kiosk_id: str, payload: dict):
+    row = get_kiosk(kiosk_id=kiosk_id)
+    if not row:
+        return
+    session_dir = KIOSK_DIR / kiosk_id
+    try:
+        if kind == "character":
+            update_kiosk(kiosk_id, status="character_processing", error=None)
+            if pipeline.IMAGE_PROVIDER == "demo":
+                sample = DEMO_ASSETS / "character.webp"
+                image = Image.open(sample).convert("RGBA")
+                pipeline.finalize_character(image).save(session_dir / "character.png")
+            else:
+                candidates = list(session_dir.glob("photo.*"))
+                if not candidates:
+                    raise ValueError("照片文件不存在")
+                pipeline.generate_character(
+                    candidates[0],
+                    session_dir,
+                    context={"kiosk_id": kiosk_id, "kind": "character"},
+                    strict=True,
+                )
+            update_kiosk(kiosk_id, status="character_ready", character_path="character.png")
+
+        elif kind == "gif":
+            action = json.loads(row["action_json"] or "{}")
+            update_kiosk(kiosk_id, status="gif_generating", error=None)
+            if pipeline.IMAGE_PROVIDER == "demo":
+                demo_file = DEMO_MAP.get(action.get("id"))
+                if not demo_file:
+                    raise ValueError("演示模式没有这个动作的素材")
+                target = session_dir / "files" / "01.gif"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((DEMO_ASSETS / demo_file).read_bytes())
+            else:
+                character = session_dir / "character.png"
+                if not character.exists():
+                    raise ValueError("角色图还没有生成")
+                target = session_dir / "files" / "01.gif"
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if os.environ.get("KIOSK_GIF_MODE", "motion") == "ai":
+                    prompt = action.get("prompt") or (
+                        "Use the character in the reference image exactly. Create a 4x4 sprite sheet, "
+                        "16 equal square frames, one short looping animation. Truly transparent background, "
+                        "no text, no border, no watermark."
+                    )
+                    pipeline.generate_sticker(
+                        character,
+                        prompt,
+                        session_dir,
+                        1,
+                        context={"kiosk_id": kiosk_id, "state_id": action.get("id")},
+                    )
+                else:
+                    pipeline.render_kiosk_gif(character, action, target)
+            expires = (datetime.now(timezone.utc) + timedelta(minutes=KIOSK_EXPIRY_MINUTES)).isoformat(timespec="seconds")
+            update_kiosk(kiosk_id, status="gif_ready", gif_path="files/01.gif", expires_at=expires, error=None)
+    except Exception as exc:
+        status = "character_failed" if kind == "character" else "gif_failed"
+        update_kiosk(kiosk_id, status=status, error=str(exc)[:300])
+
+
+def kiosk_worker():
+    while True:
+        kind, kiosk_id, payload = KIOSK_QUEUE.get()
+        try:
+            process_kiosk(kind, kiosk_id, payload)
+        except Exception:
+            update_kiosk(kiosk_id, status="character_failed" if kind == "character" else "gif_failed", error="kiosk worker error")
+        finally:
+            KIOSK_QUEUE.task_done()
+
+
+def make_qr(url: str, target: Path):
+    if qrcode is None:
+        raise RuntimeError("qrcode 未安装，无法生成二维码")
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=10, border=3)
+    qr.add_data(url)
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="#241c15", back_color="#ffffff").convert("RGB")
+    image.save(target)
+    return target
+
+
 def worker():
     while True:
         order_id = JOB_QUEUE.get()
@@ -832,6 +1026,100 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/settings":
             self.send_json(public_settings(load_settings()))
             return
+        if re.match(r"^/claim/[A-Za-z0-9]+$", path):
+            self.path = "/claim.html"
+            super().do_GET()
+            return
+        match = re.match(r"^/api/kiosk/sessions/([^/]+)/qr\.png$", path)
+        if match:
+            row = get_kiosk(kiosk_id=match.group(1))
+            if not row:
+                self.send_json({"error": "session not found"}, 404)
+                return
+            base = kiosk_base(self)
+            target = KIOSK_DIR / row["id"] / "qr.png"
+            try:
+                make_qr(f"{base}/claim/{row['token']}", target)
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, 500)
+                return
+            data = target.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        match = re.match(r"^/api/kiosk/sessions/([^/]+)/files/(.+)$", path)
+        if match:
+            kiosk_id = match.group(1)
+            name = Path(urllib.parse.unquote(match.group(2))).name
+            session_dir = KIOSK_DIR / kiosk_id
+            target = session_dir / name if name == "character.png" else session_dir / "files" / name
+            if not target.exists():
+                self.send_json({"error": "file not found"}, 404)
+                return
+            data = target.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", self.guess_type(target.name))
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        match = re.match(r"^/api/kiosk/sessions/([^/]+)$", path)
+        if match:
+            row = get_kiosk(kiosk_id=match.group(1))
+            if not row:
+                self.send_json({"error": "session not found"}, 404)
+                return
+            self.send_json(serialize_kiosk(row, kiosk_base(self)))
+            return
+        match = re.match(r"^/api/claims/([^/]+)/download$", path)
+        if match:
+            row = get_kiosk(token=match.group(1))
+            if not row:
+                self.send_json({"error": "claim not found"}, 404)
+                return
+            session = serialize_kiosk(row, kiosk_base(self))
+            if session["status"] == "expired":
+                self.send_json({"error": "作品已过期"}, 410)
+                return
+            if session["status"] != "gif_ready":
+                self.send_json({"error": "作品还没准备好"}, 409)
+                return
+            gif = KIOSK_DIR / row["id"] / "files" / "01.gif"
+            if not gif.exists():
+                self.send_json({"error": "gif not ready"}, 404)
+                return
+            data = gif.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/gif")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Disposition", 'attachment; filename="sticker.gif"')
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        match = re.match(r"^/api/claims/([^/]+)$", path)
+        if match:
+            row = get_kiosk(token=match.group(1))
+            if not row:
+                self.send_json({"error": "claim not found"}, 404)
+                return
+            session = serialize_kiosk(row, kiosk_base(self))
+            if session["status"] == "expired":
+                self.send_json({"status": "expired", "error": "作品已过期"}, 410)
+                return
+            if session["status"] != "gif_ready":
+                self.send_json({"status": session["status"], "error": row["error"] or "作品还没准备好"}, 409)
+                return
+            action = session.get("action") or {}
+            self.send_json({
+                "status": "ready",
+                "word": action.get("word") or "表情",
+                "gif_url": f"/api/claims/{row['token']}/download",
+                "expires_at": session["expires_at"],
+            })
+            return
         if path == "/api/orders":
             with db() as conn:
                 rows = conn.execute("SELECT id FROM orders ORDER BY created_at DESC LIMIT 50").fetchall()
@@ -900,6 +1188,62 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self.send_json(public_settings(settings))
             return
+        if path == "/api/kiosk/sessions":
+            try:
+                session = create_kiosk_session(payload.get("photo"))
+            except ValueError as exc:
+                self.send_json({"error": str(exc)}, 400)
+                return
+            row = get_kiosk(kiosk_id=session["id"])
+            self.send_json(serialize_kiosk(row, kiosk_base(self)), 201)
+            return
+        match = re.match(r"^/api/kiosk/sessions/([^/]+)/retry-character$", path)
+        if match:
+            row = get_kiosk(kiosk_id=match.group(1))
+            if not row:
+                self.send_json({"error": "session not found"}, 404)
+                return
+            target = KIOSK_DIR / row["id"] / "character.png"
+            target.unlink(missing_ok=True)
+            update_kiosk(row["id"], status="character_queued", error=None, character_path=None)
+            KIOSK_QUEUE.put(("character", row["id"], {}))
+            self.send_json(serialize_kiosk(get_kiosk(kiosk_id=row["id"]), kiosk_base(self)), 202)
+            return
+        match = re.match(r"^/api/kiosk/sessions/([^/]+)/gif$", path)
+        if match:
+            row = get_kiosk(kiosk_id=match.group(1))
+            if not row:
+                self.send_json({"error": "session not found"}, 404)
+                return
+            action = payload.get("action")
+            if not isinstance(action, dict) or not action.get("id"):
+                self.send_json({"error": "action is required"}, 400)
+                return
+            update_kiosk(
+                row["id"],
+                status="gif_queued",
+                action_json=json.dumps(action, ensure_ascii=False),
+                error=None,
+            )
+            KIOSK_QUEUE.put(("gif", row["id"], {}))
+            self.send_json(serialize_kiosk(get_kiosk(kiosk_id=row["id"]), kiosk_base(self)), 202)
+            return
+        match = re.match(r"^/api/kiosk/sessions/([^/]+)/refresh$", path)
+        if match:
+            row = get_kiosk(kiosk_id=match.group(1))
+            if not row:
+                self.send_json({"error": "session not found"}, 404)
+                return
+            new_token = uuid.uuid4().hex[:12]
+            expires = (datetime.now(timezone.utc) + timedelta(minutes=KIOSK_EXPIRY_MINUTES)).isoformat(timespec="seconds")
+            (KIOSK_DIR / row["id"] / "qr.png").unlink(missing_ok=True)
+            with db() as conn:
+                conn.execute(
+                    "UPDATE kiosk_sessions SET token = ?, expires_at = ?, status = 'gif_ready', updated_at = ? WHERE id = ?",
+                    (new_token, expires, now(), row["id"]),
+                )
+            self.send_json(serialize_kiosk(get_kiosk(kiosk_id=row["id"]), kiosk_base(self)))
+            return
         match = re.match(r"^/api/orders/([^/]+)/generate$", path)
         if match:
             order = get_order(match.group(1))
@@ -937,12 +1281,13 @@ def main():
     pipeline.set_call_logger(record_api_call)
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
+    threading.Thread(target=kiosk_worker, daemon=True).start()
 
     server = None
     port = 8787
     for candidate in range(8787, 8800):
         try:
-            server = ThreadingHTTPServer(("127.0.0.1", candidate), partial(Handler, directory=str(ROOT)))
+            server = ThreadingHTTPServer((STUDIO_HOST, candidate), partial(Handler, directory=str(ROOT)))
             port = candidate
             break
         except OSError:
@@ -952,6 +1297,7 @@ def main():
 
     url = f"http://127.0.0.1:{port}/"
     print(f"旗袍表情工坊 backend: {url}")
+    print(f"kiosk: {url}kiosk.html | claim base: {PUBLIC_BASE_URL or url.rstrip('/')}")
     print(f"provider: {pipeline.IMAGE_PROVIDER} | model: {pipeline.DASHSCOPE_MODEL} | key: {'yes' if pipeline.DASHSCOPE_KEY else 'no'}")
     print("按 Ctrl+C 停止。")
     if os.environ.get("STUDIO_NO_BROWSER") != "1":

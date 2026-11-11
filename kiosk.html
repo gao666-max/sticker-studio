@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>旗袍表情工坊 · 现场拍照亭</title>
+<link rel="stylesheet" href="kiosk.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f5edde'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23c8452d'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="kiosk-bar">
+  <a class="brand" href="index.html">旗袍表情工坊 <span>PHOTO BOOTH</span></a>
+  <ol class="steps" id="steps">
+    <li data-step="1"><b>01</b><span>拍照</span></li>
+    <li data-step="2"><b>02</b><span>角色</span></li>
+    <li data-step="3"><b>03</b><span>动作</span></li>
+    <li data-step="4"><b>04</b><span>领取</span></li>
+  </ol>
+  <a class="exit" href="index.html">退出</a>
+</header>
+
+<main class="kiosk-stage">
+  <section class="screen preview" id="screen-preview">
+    <div class="preview-copy">
+      <p class="kicker">STEP 01 / CAPTURE</p>
+      <h1>请站到镜头前，<br>调整好姿势</h1>
+      <p class="lede">看屏幕预览，准备好后按下快门。</p>
+      <div class="hardware-hint"><i></i> 实体快门 / 空格键</div>
+    </div>
+    <div class="preview-side">
+      <div class="camera">
+        <video id="camera" autoplay playsinline muted></video>
+        <div class="camera-grid" aria-hidden="true"></div>
+        <div class="camera-corner tl"></div><div class="camera-corner tr"></div>
+        <div class="camera-corner bl"></div><div class="camera-corner br"></div>
+        <p class="camera-state" id="cameraState">正在连接摄像头…</p>
+      </div>
+      <button class="shutter" id="shutterBtn" type="button">
+        <span class="shutter-dot"></span>
+        <span>按下快门</span>
+        <small>SPACE</small>
+      </button>
+      <button class="text-btn" id="sampleBtn" type="button">摄像头不可用？用示例照片继续</button>
+    </div>
+  </section>
+
+  <section class="screen process" id="screen-process" hidden>
+    <p class="kicker">STEP 02 / AI CHARACTER</p>
+    <h1 id="processTitle">正在生成你的卡通角色…</h1>
+    <p class="lede" id="processSub">AI 正在努力创作，请稍候</p>
+    <div class="big-progress"><i id="processBar"></i></div>
+    <div class="process-meta"><span id="processPct">0%</span><span id="processElapsed">0s</span></div>
+    <ol class="process-steps" id="processSteps">
+      <li data-stage="upload"><b>01</b><span>照片上传</span></li>
+      <li data-stage="parse"><b>02</b><span>人物解析</span></li>
+      <li data-stage="cartoon"><b>03</b><span>卡通化</span></li>
+      <li data-stage="cutout"><b>04</b><span>透明底处理</span></li>
+    </ol>
+    <div class="process-foot">
+      <button class="text-btn" id="processRetake" type="button">重拍</button>
+    </div>
+  </section>
+
+  <section class="screen character" id="screen-character" hidden>
+    <div class="character-copy">
+      <p class="kicker">STEP 03 / CONFIRM</p>
+      <h1>你的卡通角色<br>已生成</h1>
+      <p class="lede">确认后将进入动作选择。不满意可以重拍或重新生成。</p>
+      <div class="character-actions">
+        <button class="primary" id="confirmCharacter" type="button">确认角色</button>
+        <button class="text-btn" id="retakeCharacter" type="button">重拍</button>
+        <button class="text-btn" id="regenerateCharacter" type="button">重新生成</button>
+      </div>
+      <p class="tiny">确认按钮会短暂锁定，避免误触。</p>
+    </div>
+    <figure class="character-frame">
+      <img id="characterImg" alt="生成的透明底卡通角色">
+      <figcaption>1024 × 1024 · 透明 PNG</figcaption>
+    </figure>
+  </section>
+
+  <section class="screen action" id="screen-action" hidden>
+    <div class="action-head">
+      <div>
+        <p class="kicker">STEP 04 / ACTION</p>
+        <h1>旋转旋钮选择动作</h1>
+        <p class="lede">当前选中：<b id="actionName">收到</b></p>
+      </div>
+      <div class="knob" id="knob" aria-hidden="true">
+        <span class="knob-tick t1"></span><span class="knob-tick t2"></span><span class="knob-tick t3"></span><span class="knob-tick t4"></span>
+        <div class="knob-ring"><span id="knobIndex">01</span></div>
+        <small>转动 / ← →</small>
+      </div>
+    </div>
+    <div class="action-grid" id="actionGrid"></div>
+    <div class="action-foot">
+      <button class="round-btn" id="actionPrev" type="button" aria-label="上一个动作">←</button>
+      <button class="primary wide" id="actionConfirm" type="button">确认这个动作</button>
+      <button class="round-btn" id="actionNext" type="button" aria-label="下一个动作">→</button>
+    </div>
+    <p class="tiny center">转动旋钮切换，按下确认按钮选定。选择会高亮，不会自动提交。</p>
+  </section>
+
+  <section class="screen gif" id="screen-gif" hidden>
+    <p class="kicker">STEP 05 / GIF</p>
+    <h1>正在生成你的 GIF…</h1>
+    <p class="lede" id="gifSub">正在把角色放进动作里，请稍候。</p>
+    <div class="big-progress"><i id="gifBar"></i></div>
+    <div class="process-meta"><span id="gifPct">0%</span><span id="gifElapsed">0s</span></div>
+    <div class="gif-foot">
+      <button class="text-btn" id="gifBack" type="button">返回动作选择</button>
+    </div>
+  </section>
+
+  <section class="screen qr" id="screen-qr" hidden>
+    <div class="qr-layout">
+      <figure class="gif-frame">
+        <img id="gifImg" alt="生成的 GIF 作品">
+        <figcaption>你的作品 · GIF</figcaption>
+      </figure>
+      <div class="qr-copy">
+        <p class="kicker">READY / CLAIM</p>
+        <h1>扫码领取<br>你的作品</h1>
+        <p class="lede">请使用手机扫码下载或分享。</p>
+        <div class="qr-card"><img id="qrImg" alt="领取二维码"></div>
+        <div class="claim-row"><span>领取码</span><b id="claimCode">----</b></div>
+        <p class="countdown-line">二维码有效期：<b id="qrCountdown">30:00</b></p>
+        <div class="qr-actions">
+          <button class="primary" id="refreshQr" type="button">重新获取</button>
+          <button class="text-btn" id="newSession" type="button">再来一位</button>
+        </div>
+        <p class="tiny" id="qrNote">二维码绑定唯一作品 ID，过期后需要重新获取。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen error" id="screen-error" hidden>
+    <p class="kicker">RECOVER</p>
+    <h1 id="errorTitle">出了点问题</h1>
+    <p class="lede" id="errorText">请重试，或叫现场工作人员。</p>
+    <div class="error-actions" id="errorActions"></div>
+    <p class="tiny">所有失败状态都会提供下一步，不会卡死在等待页。</p>
+  </section>
+</main>
+
+<div class="flash" id="flash" aria-hidden="true"></div>
+<canvas id="captureCanvas" hidden></canvas>
+<div class="countdown" id="countdown" hidden><span>3</span></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="kiosk.js"></script>
+</body>
+</html>

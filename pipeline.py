@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
 import os
 import time
 import urllib.error
@@ -21,7 +22,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 DASHSCOPE_ENDPOINT = os.environ.get("DASHSCOPE_ENDPOINT", "https://dashscope.aliyuncs.com/api/v1").rstrip("/")
 DASHSCOPE_MODEL = os.environ.get("DASHSCOPE_MODEL", "qwen-image-3.0")
@@ -260,11 +261,87 @@ def generate_image(prompt: str, target: Path, reference: Path | None = None,
 # real pipeline
 # ---------------------------------------------------------------------------
 
+class CharacterQualityError(RuntimeError):
+    pass
+
+
+def alpha_coverage(image: Image.Image) -> float:
+    alpha = np.array(image.convert("RGBA"))[..., 3]
+    return float((alpha > 16).mean())
+
+
+def grabcut_foreground(image: Image.Image) -> Image.Image:
+    """Fallback cutout for a centered subject on a non-white background."""
+    rgb = np.array(image.convert("RGB"))
+    h, w = rgb.shape[:2]
+    mask = np.zeros((h, w), np.uint8)
+    pad_x, pad_y = max(1, w // 20), max(1, h // 20)
+    rect = (pad_x, pad_y, max(2, w - pad_x * 2), max(2, h - pad_y * 2))
+    bgd = np.zeros((1, 65), np.float64)
+    fgd = np.zeros((1, 65), np.float64)
+    cv2.grabCut(rgb, mask, rect, bgd, fgd, 5, cv2.GC_INIT_WITH_RECT)
+    alpha = np.where((mask == 0) | (mask == 2), 0, 255).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats((alpha > 0).astype(np.uint8), 8)
+    if n > 1:
+        largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        alpha[labels != largest] = 0
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (13, 13))
+    grown = cv2.dilate(alpha, kernel)
+    out = np.zeros((h, w, 4), np.uint8)
+    out[..., :3] = 255
+    out[..., 3] = grown
+    keep = alpha > 0
+    out[..., :3][keep] = rgb[keep]
+    out[..., 3][keep] = 255
+    return Image.fromarray(out, "RGBA")
+
+
+def remove_background(image: Image.Image) -> Image.Image:
+    cut = detach_background(image)
+    coverage = alpha_coverage(cut)
+    if 0.02 < coverage < 0.97:
+        return cut
+    try:
+        fallback = grabcut_foreground(image)
+        if 0.02 < alpha_coverage(fallback) < 0.97:
+            return fallback
+    except Exception:
+        pass
+    return cut
+
+
+def finalize_character(image: Image.Image, size: int = 1024, margin: float = 0.07) -> Image.Image:
+    """Trim, center and fit the character on a square transparent canvas."""
+    rgba = image.convert("RGBA")
+    bbox = rgba.getbbox()
+    if bbox is None:
+        raise CharacterQualityError("角色图为空，没有得到透明人物")
+    crop = rgba.crop(bbox)
+    side = max(1, int(max(crop.width, crop.height) * (1 + margin * 2)))
+    canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+    canvas.alpha_composite(crop, ((side - crop.width) // 2, (side - crop.height) // 2))
+    return canvas.resize((size, size), Image.LANCZOS)
+
+
+def character_quality(image: Image.Image) -> dict:
+    rgba = image.convert("RGBA")
+    coverage = alpha_coverage(rgba)
+    bbox = rgba.getbbox()
+    ok = bool(bbox) and 0.02 < coverage < 0.95
+    return {
+        "ok": ok,
+        "coverage": round(coverage, 4),
+        "size": list(rgba.size),
+        "bbox": list(bbox) if bbox else None,
+    }
+
+
 CHARACTER_PROMPT = (
     "Turn the subject of this photo into an original, heavily stylized cute cartoon sticker character: "
     "cute cartoon, thick clean dark outlines, flat colors, warm 1990s Chinese retro palette. "
     "Keep the identifying features of the person. It must clearly read as a drawing, never photorealistic. "
-    "Front-facing full body, centered, fully transparent background, no text, no border."
+    "Front-facing full body, centered, head to toe, plain uniform pure white (#FFFFFF) background, "
+    "no shadow, no floor, no props, no text, no border."
 )
 
 ASSET_PROMPTS = {
@@ -295,13 +372,21 @@ ASSET_PROMPTS = {
 }
 
 
-def generate_character(photo_path: Path, out_dir: Path, context: dict | None = None) -> Path:
+def generate_character(photo_path: Path, out_dir: Path, context: dict | None = None,
+                       strict: bool = False) -> Path:
     raw = out_dir / "character_raw.png"
     clean = out_dir / "character.png"
     ctx = dict(context or {})
     ctx.setdefault("kind", "character")
     generate_image(CHARACTER_PROMPT, raw, reference=photo_path, context=ctx)
-    detach_background(Image.open(raw)).save(clean)
+    cut = remove_background(Image.open(raw))
+    final = finalize_character(cut)
+    quality = character_quality(final)
+    final.save(clean)
+    if strict and not quality["ok"]:
+        raise CharacterQualityError(
+            f"透明角色质检失败：coverage={quality['coverage']} bbox={quality['bbox']}"
+        )
     return clean
 
 
@@ -318,6 +403,139 @@ def generate_sticker(character_path: Path, prompt: str, out_dir: Path, index: in
     detach_background(Image.open(sheet_raw)).save(sheet_clean)
     sheet_to_gif(sheet_clean, gif_path)
     return gif_path
+
+
+def _caption_font(size: int):
+    candidates = [
+        "C:/Windows/Fonts/msyhbd.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "/System/Library/Fonts/PingFang.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def _draw_heart(draw, x, y, size, color):
+    draw.ellipse((x - size, y - size, x, y), fill=color)
+    draw.ellipse((x, y - size, x + size, y), fill=color)
+    draw.polygon([(x - size, y - size // 3), (x + size, y - size // 3), (x, y + size)], fill=color)
+
+
+def _draw_sparkle(draw, x, y, size, color):
+    draw.line((x - size, y, x + size, y), fill=color, width=3)
+    draw.line((x, y - size, x, y + size), fill=color, width=3)
+
+
+def _encode_frames(frames, target: Path, duration: int = 120):
+    size = frames[0].width
+    strip = Image.new("RGB", (size * len(frames), size), "white")
+    for i, frame in enumerate(frames):
+        base = Image.new("RGBA", frame.size, "white")
+        base.alpha_composite(frame)
+        strip.paste(base.convert("RGB"), (i * size, 0))
+    palette = strip.quantize(colors=255, method=Image.MEDIANCUT, dither=Image.Dither.NONE)
+    out = []
+    for frame in frames:
+        base = Image.new("RGBA", frame.size, "white")
+        base.alpha_composite(frame)
+        q = base.convert("RGB").quantize(palette=palette, dither=Image.Dither.NONE)
+        mask = frame.getchannel("A").point(lambda a: 255 if a < 128 else 0)
+        q.paste(255, (0, 0), mask)
+        out.append(q)
+    out[0].save(
+        target,
+        save_all=True,
+        append_images=out[1:],
+        duration=duration,
+        loop=0,
+        optimize=False,
+        disposal=2,
+        transparency=255,
+    )
+    return target
+
+
+def render_kiosk_gif(character_path: Path, action: dict, target: Path,
+                     frames: int = 16, duration: int = 120) -> Path:
+    """Fast, deterministic motion GIF for the photo booth.
+
+    One API call creates the 1024 transparent character; this renderer turns it
+    into a loopable sticker in under a second, instead of another slow 4x4 call.
+    """
+    character = Image.open(character_path).convert("RGBA")
+    character = character.resize((int(1024 * 0.86), int(1024 * 0.86)), Image.LANCZOS)
+    word = str(action.get("word") or action.get("caption") or "表情")
+    action_id = str(action.get("id") or "receive")
+    font = _caption_font(62)
+    small_font = _caption_font(44)
+    result = []
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    for i in range(frames):
+        phase = 2 * math.pi * i / frames
+        dx = dy = angle = 0.0
+        scale = 1.0
+        if action_id in ("receive", "ok"):
+            dy = -10 * math.sin(phase * 2)
+            scale = 1 + 0.015 * math.sin(phase * 2)
+        elif action_id == "thanks":
+            angle = 4.5 * math.sin(phase)
+            dy = 5 * math.sin(phase)
+        elif action_id == "love":
+            dx = 9 * math.sin(phase)
+            angle = 2.5 * math.sin(phase)
+        elif action_id == "night":
+            angle = -3.5 * math.sin(phase)
+            dy = 4 * math.sin(phase)
+        elif action_id == "laugh":
+            dx = 8 * math.sin(phase * 4)
+            angle = 1.6 * math.sin(phase * 4)
+        else:
+            dy = -6 * math.sin(phase)
+
+        frame = character
+        if scale != 1.0:
+            frame = frame.resize((int(frame.width * scale), int(frame.height * scale)), Image.LANCZOS)
+        if angle:
+            frame = frame.rotate(angle, resample=Image.BICUBIC, expand=False)
+        canvas = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+        x = (1024 - frame.width) // 2 + int(dx)
+        y = (1024 - frame.height) // 2 - 24 + int(dy)
+        canvas.alpha_composite(frame, (x, y))
+
+        overlay = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        if action_id == "love":
+            for k in range(4):
+                hx = 210 + k * 190 + int(18 * math.sin(phase + k))
+                hy = 620 - ((i * 13 + k * 40) % 300)
+                _draw_heart(draw, hx, hy, 16 + k * 2, (200, 69, 45, 220))
+        elif action_id in ("receive", "thanks"):
+            for k in range(5):
+                sx = 150 + k * 170
+                sy = 180 + int(24 * math.sin(phase * 2 + k))
+                _draw_sparkle(draw, sx, sy, 9, (212, 164, 72, 220))
+        elif action_id == "night":
+            for k in range(3):
+                draw.text((760 + k * 42, 170 - ((i * 8 + k * 30) % 180)), "Z",
+                          font=small_font, fill=(47, 93, 120, 220))
+        elif action_id == "laugh":
+            for k in range(2):
+                draw.ellipse((250 + k * 470, 330, 262 + k * 470, 348), fill=(47, 93, 120, 180))
+
+        draw.text((512, 950), word, font=font, anchor="mm",
+                  fill=(36, 28, 21, 255), stroke_width=5, stroke_fill=(255, 255, 255, 255))
+        canvas = Image.alpha_composite(canvas, overlay)
+        result.append(canvas.resize((240, 240), Image.LANCZOS))
+
+    return _encode_frames(result, target, duration=duration)
 
 
 def generate_assets(character_path: Path, out_dir: Path, context: dict | None = None) -> dict:

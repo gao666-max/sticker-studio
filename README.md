@@ -92,6 +92,28 @@ USE_DSH_CREDENTIALS=0
 
 ![后台设置](docs/settings.png)
 
+## 现场拍照亭
+
+顶部「现场模式」打开 `kiosk.html`，这是一条给线下设备用的全屏流程：
+
+```text
+拍照 → 1024 透明卡通角色 → 选动作 → GIF → 二维码 → 手机领取
+```
+
+- 摄像头实时预览，实体快门 / 空格键拍照
+- 角色生成有进度、失败重试、重拍
+- 旋钮用方向键 / 滚轮模拟，高亮同步，确认才提交
+- GIF 默认 `KIOSK_GIF_MODE=motion`，角色 PNG + 程序化动作，约 1 到 2 秒
+- AI 4×4 GIF 设 `KIOSK_GIF_MODE=ai`，更慢
+- 二维码绑定唯一 token，30 分钟有效，领取页可下载 / 分享
+- 手机扫码需要 `STUDIO_HOST=0.0.0.0` 和 `PUBLIC_BASE_URL`
+
+真实照片的 1024 透明角色已经实测：纯白背景卡通化、去底、质量门、1024 RGBA。
+
+![现场拍照亭](docs/kiosk-action.png)
+
+硬件桥接、状态机、二维码和接口见 [KIOSK.md](KIOSK.md)。
+
 ## 成本统计
 
 `GET /api/usage` 返回累计、今日、本月、近 14 天、按类型、最近调用与预估成本。
@@ -114,13 +136,20 @@ sticker-studio/
 ├─ index.html          # 页面结构
 ├─ styles.css          # 暖纸、宋体、青花蓝的编辑风 UI
 ├─ app.js              # 状态机、轮询、续接、ZIP、成本面板
-├─ server.py           # 静态服务 + 订单 API + SQLite + 队列 + ZIP
-├─ pipeline.py         # 去底、切帧、GIF、DashScope 适配
+├─ kiosk.html          # 现场拍照亭
+├─ kiosk.css
+├─ kiosk.js
+├─ claim.html          # 手机领取页
+├─ claim.css
+├─ claim.js
+├─ server.py           # 静态服务 + 订单 / Kiosk API + SQLite + 队列 + ZIP
+├─ pipeline.py         # 去底、1024 角色、切帧、GIF、DashScope 适配
 ├─ serve.py            # 纯静态预览，不接后端时备用
 ├─ start-studio.bat
 ├─ requirements.txt
 ├─ .env.example
 ├─ BACKEND.md          # 接口、队列、数据模型
+├─ KIOSK.md            # 拍照亭流程、硬件与二维码
 ├─ workflow.md         # 完整生产工作流与提示词
 ├─ workflow.yaml       # 参数化版本
 ├─ assets/             # 演示素材
@@ -135,6 +164,10 @@ sticker-studio/
 | GET | `/api/settings` | 非敏感设置、Key 是否配置 |
 | POST | `/api/settings` | 保存 provider、模型、Key、价格、内容风格 |
 | GET | `/api/usage` | 调用次数、成本、趋势、最近调用 |
+| POST | `/api/kiosk/sessions` | 上传照片，创建拍照亭会话 |
+| GET | `/api/kiosk/sessions/{id}` | 查询角色、GIF、二维码 |
+| POST | `/api/kiosk/sessions/{id}/gif` | 选择动作，生成 GIF |
+| GET | `/claim/{token}` | 手机领取页 |
 | GET | `/api/orders` | 最近订单 |
 | POST | `/api/orders` | 创建订单，角色图 + pack + states |
 | POST | `/api/orders/{id}/generate` | 入队生成 |
