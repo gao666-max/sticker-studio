@@ -20,11 +20,13 @@ Endpoints
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import os
 import queue
 import re
+import secrets
 import shutil
 import socket
 import sqlite3
@@ -129,6 +131,47 @@ def effective_base_url() -> str:
         return f"http://{detect_lan_ip()}:{ACTIVE_PORT}"
     return f"http://127.0.0.1:{ACTIVE_PORT}"
 
+
+DEFAULT_PIN_HASH = hashlib.sha256(b"2468").hexdigest()
+BOOTH_TOKENS: dict[str, float] = {}
+BOOTH_TOKEN_LOCK = threading.Lock()
+
+
+def hash_pin(pin: str) -> str:
+    return hashlib.sha256(pin.encode("utf-8")).hexdigest()
+
+
+def issue_booth_token() -> str:
+    token = secrets.token_urlsafe(24)
+    with BOOTH_TOKEN_LOCK:
+        BOOTH_TOKENS[token] = time.time() + 12 * 3600
+    return token
+
+
+def valid_booth_token(handler) -> bool:
+    token = handler.headers.get("X-Booth-Token", "")
+    if not token:
+        return False
+    with BOOTH_TOKEN_LOCK:
+        expires = BOOTH_TOKENS.get(token)
+        if not expires:
+            return False
+        if expires < time.time():
+            BOOTH_TOKENS.pop(token, None)
+            return False
+        return True
+
+
+def is_local_request(handler) -> bool:
+    return handler.client_address[0] in ("127.0.0.1", "::1")
+
+
+def require_booth_auth(handler) -> bool:
+    if valid_booth_token(handler):
+        return True
+    handler.send_json({"error": "需要运营 PIN"}, 401)
+    return False
+
 DEMO_MAP = {
     "receive": "gif-01.gif",
     "ok": "gif-02.gif",
@@ -211,7 +254,10 @@ def load_settings():
         "promptExtra": str(saved.get("promptExtra") or "")[:500],
         "publicBaseUrl": str(saved.get("publicBaseUrl") or os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/"),
         "deviceName": str(saved.get("deviceName") or "拍照亭 01")[:60],
+        "deviceId": str(saved.get("deviceId") or ("booth-" + socket.gethostname().lower()[:16]))[:64],
         "retentionHours": int(saved.get("retentionHours") or 24),
+        "boothPinHash": str(saved.get("boothPinHash") or DEFAULT_PIN_HASH),
+        "deleteOriginals": bool(saved.get("deleteOriginals", True)),
     }
 
 
@@ -251,7 +297,10 @@ def public_settings(settings):
             "publicBaseUrl": settings["publicBaseUrl"],
             "effectiveBaseUrl": effective_base_url(),
             "deviceName": settings["deviceName"],
+            "deviceId": settings["deviceId"],
             "retentionHours": settings["retentionHours"],
+            "pinConfigured": True,
+            "deleteOriginals": settings["deleteOriginals"],
             "lanIp": detect_lan_ip(),
             "port": ACTIVE_PORT,
             "host": STUDIO_HOST,
@@ -287,11 +336,17 @@ def save_settings(payload):
     if public_base and not public_base.startswith(("http://", "https://")):
         raise ValueError("publicBaseUrl must be an http(s) URL or empty")
     device_name = str(payload.get("deviceName", current["deviceName"])).strip()[:60] or "拍照亭 01"
+    device_id = str(payload.get("deviceId", current["deviceId"])).strip()[:64] or current["deviceId"]
     try:
         retention_hours = int(payload.get("retentionHours", current["retentionHours"]))
     except (TypeError, ValueError):
         retention_hours = current["retentionHours"]
     retention_hours = max(1, min(720, retention_hours))
+    new_pin = str(payload.get("boothPin", "")).strip()
+    if new_pin and len(new_pin) < 4:
+        raise ValueError("运营 PIN 至少 4 位")
+    booth_pin_hash = hash_pin(new_pin) if new_pin else current["boothPinHash"]
+    delete_originals = bool(payload.get("deleteOriginals", current["deleteOriginals"]))
 
     if payload.get("clearKey"):
         api_key = ""
@@ -315,7 +370,10 @@ def save_settings(payload):
         "promptExtra": str(payload.get("promptExtra", current["promptExtra"]))[:500],
         "publicBaseUrl": public_base,
         "deviceName": device_name,
+        "deviceId": device_id,
         "retentionHours": retention_hours,
+        "boothPinHash": booth_pin_hash,
+        "deleteOriginals": delete_originals,
     }
 
     file_data = {
@@ -330,7 +388,10 @@ def save_settings(payload):
         "promptExtra": effective["promptExtra"],
         "publicBaseUrl": public_base,
         "deviceName": device_name,
+        "deviceId": device_id,
         "retentionHours": retention_hours,
+        "boothPinHash": booth_pin_hash,
+        "deleteOriginals": delete_originals,
     }
     if payload.get("clearKey"):
         file_data["apiKey"] = ""
@@ -968,6 +1029,9 @@ def process_kiosk(kind: str, kiosk_id: str, payload: dict):
                     pipeline.render_kiosk_gif(character, action, target)
             expires = (datetime.now(timezone.utc) + timedelta(minutes=KIOSK_EXPIRY_MINUTES)).isoformat(timespec="seconds")
             update_kiosk(kiosk_id, status="gif_ready", gif_path="files/01.gif", expires_at=expires, error=None)
+            if load_settings()["deleteOriginals"]:
+                for photo in (KIOSK_DIR / kiosk_id).glob("photo.*"):
+                    photo.unlink(missing_ok=True)
     except Exception as exc:
         retries = int(row["retries"] or 0)
         if retries < 1:
@@ -1006,14 +1070,20 @@ def cleanup_kiosk(hours: int | None = None) -> int:
 
 
 def recover_kiosk() -> int:
+    """Requeue sessions that were interrupted by a restart."""
     with db() as conn:
-        cursor = conn.execute(
-            "UPDATE kiosk_sessions SET status = CASE WHEN status LIKE 'gif%' THEN 'gif_failed' ELSE 'character_failed' END, "
-            "error = '服务重启，请重新生成', updated_at = ? "
-            "WHERE status IN ('character_queued','character_processing','gif_queued','gif_generating')",
-            (now(),),
-        )
-        return cursor.rowcount
+        rows = conn.execute(
+            "SELECT id, status FROM kiosk_sessions WHERE status IN "
+            "('character_queued','character_processing','gif_queued','gif_generating')"
+        ).fetchall()
+    for row in rows:
+        if row["status"].startswith("character"):
+            update_kiosk(row["id"], status="character_queued", error=None)
+            KIOSK_QUEUE.put(("character", row["id"], {}))
+        else:
+            update_kiosk(row["id"], status="gif_queued", error=None)
+            KIOSK_QUEUE.put(("gif", row["id"], {}))
+    return len(rows)
 
 
 def cleanup_worker():
@@ -1174,6 +1244,8 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
             return
         if path == "/api/kiosk/sessions":
+            if not require_booth_auth(self):
+                return
             query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             limit = int(query.get("limit", ["50"])[0])
             self.send_json(list_kiosk(limit))
@@ -1328,7 +1400,17 @@ class Handler(SimpleHTTPRequestHandler):
             order = create_order(payload)
             self.send_json(order, 201)
             return
+        if path == "/api/booth/login":
+            pin = str(payload.get("pin") or "")
+            if not pin or hash_pin(pin) != load_settings()["boothPinHash"]:
+                self.send_json({"error": "PIN 不正确"}, 401)
+                return
+            self.send_json({"token": issue_booth_token()})
+            return
         if path == "/api/settings":
+            if not is_local_request(self) and not valid_booth_token(self):
+                self.send_json({"error": "需要运营 PIN"}, 401)
+                return
             try:
                 settings = save_settings(payload)
             except ValueError as exc:
@@ -1337,6 +1419,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(public_settings(settings))
             return
         if path == "/api/kiosk/cleanup":
+            if not require_booth_auth(self):
+                return
             try:
                 removed = cleanup_kiosk(payload.get("hours"))
             except Exception as exc:
@@ -1359,6 +1443,8 @@ class Handler(SimpleHTTPRequestHandler):
             return
         match = re.match(r"^/api/kiosk/sessions/([^/]+)/retry-character$", path)
         if match:
+            if not require_booth_auth(self):
+                return
             row = get_kiosk(kiosk_id=match.group(1))
             if not row:
                 self.send_json({"error": "session not found"}, 404)
@@ -1371,6 +1457,8 @@ class Handler(SimpleHTTPRequestHandler):
             return
         match = re.match(r"^/api/kiosk/sessions/([^/]+)/retry-gif$", path)
         if match:
+            if not require_booth_auth(self):
+                return
             row = get_kiosk(kiosk_id=match.group(1))
             if not row:
                 self.send_json({"error": "session not found"}, 404)
@@ -1448,6 +1536,8 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_json({"error": "not found"}, 404)
 
     def do_DELETE(self):
+        if not require_booth_auth(self):
+            return
         path = urllib.parse.urlparse(self.path).path
         match = re.match(r"^/api/kiosk/sessions/([^/]+)$", path)
         if not match:

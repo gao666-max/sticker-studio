@@ -117,8 +117,14 @@ document.dispatchEvent(new CustomEvent("kiosk:rotate", { detail: { delta: 1 } })
 - 删除单条会话，或按保留时间批量清理
 - 设置设备名、手机访问地址、保留小时
 - 自动检测局域网 IP
+- 运营 PIN 登录，初始 `2468`，登录后修改
+- 出片后默认删除原图，只留角色和 GIF
 
 手机访问地址就是二维码的 base。改完保存后，重新生成二维码即可，不用改 `.env` 重启。
+
+服务重启时，`character_queued`、`character_processing`、`gif_queued`、`gif_generating` 会自动重新入队，不会直接判失败。重复生成只会覆盖同一个文件。
+
+注意：运营台没有 HTTPS 和设备证书，只适合本机或内网。忘记 PIN 时，删掉 `data/settings.json` 里的 `boothPinHash` 再重启，会恢复初始 `2468`。
 
 ## 二维码与领取
 

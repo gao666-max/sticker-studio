@@ -14,8 +14,22 @@
     <a href="index.html">工作室</a>
     <a href="kiosk.html" target="_blank" rel="noopener">现场模式</a>
     <a href="booth.html" class="is-active">现场运营</a>
+    <button type="button" class="link-btn" id="logoutBtn">退出</button>
   </nav>
 </header>
+
+<div class="login" id="loginOverlay">
+  <div class="login-card">
+    <p class="kicker">OPERATOR</p>
+    <h2>运营登录</h2>
+    <p class="lede">输入运营 PIN。初始 PIN 是 <b>2468</b>，登录后请在设置里修改。</p>
+    <label>运营 PIN
+      <input id="loginPin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="12">
+    </label>
+    <button class="primary wide" id="loginBtn" type="button">进入运营台</button>
+    <p class="hint" id="loginNote"></p>
+  </div>
+</div>
 
 <main>
   <section class="hero">
@@ -44,10 +58,13 @@
     </div>
     <div class="form-grid">
       <label>设备名<input id="deviceName" type="text" maxlength="60"></label>
+      <label>设备 ID<input id="deviceId" type="text" maxlength="64" readonly></label>
       <label>记录保留（小时）<input id="retentionHours" type="number" min="1" max="720"></label>
+      <label>新运营 PIN（留空不改）<input id="boothPin" type="password" maxlength="12" autocomplete="new-password" placeholder="至少 4 位"></label>
       <label class="full">手机访问地址
         <input id="publicBaseUrl" type="text" placeholder="留空自动检测局域网 IP，例如 http://192.168.43.5:8787">
       </label>
+      <label class="full check-line"><input id="deleteOriginals" type="checkbox"> 出片后自动删除客户原图</label>
     </div>
     <div class="setting-foot">
       <button class="text-btn" id="detectBtn" type="button">使用本机局域网地址</button>

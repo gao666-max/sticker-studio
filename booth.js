@@ -3,6 +3,7 @@
   const $ = (id) => document.getElementById(id);
   let settingsData = null;
   let refreshTimer = null;
+  let boothToken = sessionStorage.getItem("boothToken") || "";
 
   const STATUS = {
     character_queued: ["排队解析", "active"],
@@ -17,10 +18,56 @@
   };
 
   async function api(path, options = {}) {
-    const response = await fetch(path, options);
+    const headers = Object.assign({}, options.headers || {});
+    if (boothToken) headers["X-Booth-Token"] = boothToken;
+    const response = await fetch(path, Object.assign({}, options, { headers }));
     const data = await response.json().catch(() => ({}));
+    if (response.status === 401) {
+      showLogin();
+      throw new Error(data.error || "需要运营 PIN");
+    }
     if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
     return data;
+  }
+
+  function showLogin() {
+    $("loginOverlay").hidden = false;
+    setTimeout(() => $("loginPin").focus(), 50);
+    clearInterval(refreshTimer);
+  }
+
+  function hideLogin() {
+    $("loginOverlay").hidden = true;
+  }
+
+  async function login() {
+    const pin = $("loginPin").value.trim();
+    if (!pin) { $("loginNote").textContent = "请输入 PIN"; return; }
+    try {
+      const response = await fetch("/api/booth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "PIN 不正确");
+      boothToken = data.token;
+      sessionStorage.setItem("boothToken", boothToken);
+      $("loginPin").value = "";
+      $("loginNote").textContent = "";
+      hideLogin();
+      await loadAll();
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(loadSessions, 10000);
+    } catch (e) {
+      $("loginNote").textContent = e.message;
+    }
+  }
+
+  function logout() {
+    boothToken = "";
+    sessionStorage.removeItem("boothToken");
+    showLogin();
   }
 
   function toast(message) {
@@ -119,8 +166,11 @@
     settingsData = settings;
     const booth = settings.booth || {};
     $("deviceName").value = booth.deviceName || "拍照亭 01";
+    $("deviceId").value = booth.deviceId || "";
     $("retentionHours").value = booth.retentionHours || 24;
     $("publicBaseUrl").value = booth.publicBaseUrl || "";
+    $("deleteOriginals").checked = booth.deleteOriginals !== false;
+    $("boothPin").value = "";
     $("networkNote").textContent = "LAN " + (booth.lanIp || "—") + ":" + (booth.port || 8787) + " · 服务 " + (booth.host || "127.0.0.1");
     $("baseHint").textContent = "二维码会用 " + (booth.effectiveBaseUrl || "自动地址") + " 生成。手机必须和电脑同一 Wi-Fi，防火墙要放行端口。";
   }
@@ -160,9 +210,12 @@
       captionTone: current.content.tone,
       promptExtra: current.content.extra,
       deviceName: $("deviceName").value.trim(),
+      deviceId: $("deviceId").value.trim(),
       retentionHours: Number($("retentionHours").value),
-      publicBaseUrl: $("publicBaseUrl").value.trim()
+      publicBaseUrl: $("publicBaseUrl").value.trim(),
+      deleteOriginals: $("deleteOriginals").checked
     };
+    if ($("boothPin").value.trim()) payload.boothPin = $("boothPin").value.trim();
     try {
       const updated = await api("/api/settings", {
         method: "POST",
@@ -195,6 +248,11 @@
     $("refreshBtn").addEventListener("click", loadAll);
     $("saveSettings").addEventListener("click", saveSettings);
     $("cleanupBtn").addEventListener("click", cleanup);
+    $("loginBtn").addEventListener("click", login);
+    $("loginPin").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") login();
+    });
+    $("logoutBtn").addEventListener("click", logout);
     $("detectBtn").addEventListener("click", () => {
       if (!settingsData) return;
       const booth = settingsData.booth || {};
@@ -211,6 +269,11 @@
 
   function start() {
     bindEvents();
+    if (!boothToken) {
+      showLogin();
+      return;
+    }
+    hideLogin();
     loadAll();
     clearInterval(refreshTimer);
     refreshTimer = setInterval(loadSessions, 10000);

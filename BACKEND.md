@@ -170,7 +170,14 @@ POST /api/settings
 | GET | `/api/claims/{token}/download` | 下载 GIF |
 | GET | `/claim/{token}` | 手机领取页 |
 
-运营设置通过 `POST /api/settings` 保存 `publicBaseUrl`、`deviceName`、`retentionHours`。`GET /api/settings` 会返回 `booth.effectiveBaseUrl`、`lanIp`、`port`。
+运营设置通过 `POST /api/settings` 保存 `publicBaseUrl`、`deviceName`、`deviceId`、`retentionHours`、`deleteOriginals`、`boothPin`。`GET /api/settings` 会返回 `booth.effectiveBaseUrl`、`lanIp`、`port`、`deviceId`。
+
+运营接口需要 `X-Booth-Token`：
+
+- `POST /api/booth/login`，body `{pin}`，返回 12 小时有效的 token
+- `GET /api/kiosk/sessions`、`DELETE /api/kiosk/sessions/{id}`、`POST /api/kiosk/cleanup`、`retry-character`、`retry-gif` 都要 token
+- 本机 `127.0.0.1` 修改设置可免 token，局域网修改设置需要 token
+- 默认 PIN `2468`，以 SHA-256 存在 `data/settings.json` 的 `boothPinHash`
 
 Kiosk 状态：`character_queued / character_processing / character_ready / character_failed / gif_queued / gif_generating / gif_ready / gif_failed / expired`。
 
