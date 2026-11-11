@@ -58,6 +58,20 @@ server.py（业务后端，8787）
 
 `GET /print/{id}` 查询状态。现在 stub 1 秒后变 `printed`。
 
+打印机异常上报：
+
+```text
+POST /printer/status
+{"status": "no_paper", "message": "纸盒空了"}
+
+GET /alerts
+POST /alerts/clear
+```
+
+状态支持 `ok / no_paper / jam / offline`。非 `ok` 时，新打印任务直接失败，运营台出现红色「打印告警」，可以点「标记已处理」。
+
+kiosk 出片页会显示具体失败原因，例如「打印失败：打印机缺纸」，不会只说「打印失败」。
+
 周五要替换的部分在 `device_agent.py` 的 `do_POST` `/print` 分支：
 
 - DNP DS-RX1HS：用 DNP 驱动 / SDK 打 4×6
@@ -113,6 +127,14 @@ python test_stress.py --count 5
 ```
 
 `test_stress.py` 用 demo 模式连跑 5 单，不花 AI 费用，跑完自动删除会话并恢复原来的 provider。
+
+真实 AI 压测：
+
+```powershell
+python test_real20.py
+```
+
+默认 20 单，报告写到 `sticker-work/real20-report.json`。会真实消耗模型调用。最近一次结果见 [PERF.md](PERF.md)：19/20 成功，单均 97.8 秒，约 ¥0.39 一单。
 
 浏览器打开：
 

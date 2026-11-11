@@ -494,7 +494,10 @@
       }
       $("printNote").textContent = "打印超时，请叫现场工作人员。";
     } catch (e) {
-      $("printNote").textContent = "打印未连接或失败，可先用手机扫码领取。";
+      const message = (e && e.message) || "";
+      $("printNote").textContent = message && !/fetch|network|offline/i.test(message)
+        ? "打印失败：" + message + "，请叫现场工作人员。"
+        : "打印未连接或失败，可先用手机扫码领取。";
     } finally {
       button.disabled = false;
     }

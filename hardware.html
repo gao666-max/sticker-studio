@@ -44,6 +44,10 @@
       <button type="button" data-event="rotate" data-delta="-1">旋钮 -1<small>上一个动作</small></button>
       <button type="button" id="printBtn">打印测试<small>POST /print</small></button>
       <button type="button" id="payBtn">支付测试<small>POST /payment/intent</small></button>
+      <button type="button" data-printer="no_paper">模拟缺纸<small>printer no_paper</small></button>
+      <button type="button" data-printer="jam">模拟卡纸<small>printer jam</small></button>
+      <button type="button" data-printer="ok">恢复打印机<small>printer ok</small></button>
+      <button type="button" id="alertBtn">查看告警<small>GET /alerts</small></button>
     </div>
     <div class="row">
       <button class="text-btn" id="healthBtn" type="button">刷新代理状态</button>
@@ -105,10 +109,26 @@
     });
   });
 
+  document.querySelectorAll("[data-printer]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        const data = await agent("/printer/status", { method: "POST", body: JSON.stringify({ status: button.dataset.printer }) });
+        log("printer " + data.printer.status);
+      } catch (e) { log("printer status failed: " + e.message); }
+    });
+  });
+
+  $("alertBtn").addEventListener("click", async () => {
+    try {
+      const data = await agent("/alerts");
+      log("alerts " + data.count + " · " + (data.failed || []).map((job) => job.error).join(", "));
+    } catch (e) { log("alerts failed: " + e.message); }
+  });
+
   $("printBtn").addEventListener("click", async () => {
     try {
       const data = await agent("/print", { method: "POST", body: JSON.stringify({ sessionId: "sim-" + Date.now(), copies: 1 }) });
-      log("print queued " + data.id + " · " + data.status);
+      log("print " + data.status + " " + data.id + (data.error ? " · " + data.error : ""));
     } catch (e) { log("print failed: " + e.message); }
   });
 

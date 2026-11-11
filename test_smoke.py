@@ -75,6 +75,17 @@ def main():
         status, paid = call(AGENT, f"/payment/{payment['id']}/mock-paid", {})
         check("payment mock paid", status == 200 and paid.get("status") == "paid", paid.get("status", ""))
 
+    status, _ = call(AGENT, "/printer/status", {"status": "no_paper", "message": "smoke test"})
+    check("printer no-paper reported", status == 200)
+    status, failed_job = call(AGENT, "/print", {"sessionId": "smoke-no-paper", "copies": 1})
+    check("print fails when no paper", status == 202 and failed_job.get("status") == "failed", failed_job.get("error", ""))
+    status, alerts = call(AGENT, "/alerts")
+    check("printer alert visible", status == 200 and alerts.get("count", 0) > 0, str(alerts.get("count")))
+    status, cleared = call(AGENT, "/alerts/clear", {})
+    check("printer alert cleared", status == 200 and cleared.get("cleared", 0) > 0)
+    status, _ = call(AGENT, "/printer/status", {"status": "ok"})
+    check("printer restored", status == 200)
+
     print()
     if FAILS:
         print(f"{len(FAILS)} failed: " + ", ".join(FAILS))

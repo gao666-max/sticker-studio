@@ -58,7 +58,7 @@
       hideLogin();
       await loadAll();
       clearInterval(refreshTimer);
-      refreshTimer = setInterval(() => { loadSessions(); checkHardware(); }, 10000);
+      refreshTimer = setInterval(() => { loadSessions(); checkHardware(); checkAlerts(); }, 10000);
     } catch (e) {
       $("loginNote").textContent = e.message;
     }
@@ -206,6 +206,38 @@
     }
   }
 
+  async function checkAlerts() {
+    try {
+      const data = await api("/api/device/alerts");
+      const printer = data.printer || {};
+      const failed = data.failed || [];
+      if (!data.count) {
+        $("alertBox").hidden = true;
+        return;
+      }
+      $("alertBox").hidden = false;
+      const statusText = printer.status && printer.status !== "ok"
+        ? (printer.message || printer.status)
+        : "打印失败";
+      $("alertTitle").textContent = "打印告警 · " + statusText;
+      const lines = failed.slice(0, 3).map((job) => job.sessionId + " · " + (job.error || "打印失败"));
+      $("alertText").textContent = lines.length ? lines.join("　｜　") : "请检查打印机纸张、盖子或连接。";
+    } catch (e) {
+      $("alertBox").hidden = true;
+    }
+  }
+
+  async function clearAlerts() {
+    try {
+      const data = await api("/api/device/alerts/clear", { method: "POST", body: "{}" });
+      toast("已标记 " + (data.cleared || 0) + " 条告警");
+      $("alertBox").hidden = true;
+      checkHardware();
+    } catch (e) {
+      toast("清除失败：" + e.message);
+    }
+  }
+
   async function testPrint() {
     try {
       const data = await api("/api/device/print", {
@@ -224,6 +256,7 @@
       await loadSettings();
       await loadSessions();
       await checkHardware();
+      await checkAlerts();
     } catch (e) {
       toast("读取失败：" + e.message);
     }
@@ -282,6 +315,7 @@
     $("saveSettings").addEventListener("click", saveSettings);
     $("cleanupBtn").addEventListener("click", cleanup);
     $("testPrint").addEventListener("click", testPrint);
+    $("clearAlerts").addEventListener("click", clearAlerts);
     $("loginBtn").addEventListener("click", login);
     $("loginPin").addEventListener("keydown", (event) => {
       if (event.key === "Enter") login();
@@ -310,7 +344,7 @@
     hideLogin();
     loadAll();
     clearInterval(refreshTimer);
-    refreshTimer = setInterval(() => { loadSessions(); checkHardware(); }, 10000);
+    refreshTimer = setInterval(() => { loadSessions(); checkHardware(); checkAlerts(); }, 10000);
   }
 
   start();

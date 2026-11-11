@@ -1282,6 +1282,18 @@ class Handler(SimpleHTTPRequestHandler):
             status, data = agent_request("/health")
             self.send_json(data, status)
             return
+        if path == "/api/device/alerts":
+            if not require_booth_auth(self):
+                return
+            status, data = agent_request("/alerts")
+            self.send_json(data, status)
+            return
+        if path == "/api/device/prints":
+            if not require_booth_auth(self):
+                return
+            status, data = agent_request("/prints")
+            self.send_json(data, status)
+            return
         match = re.match(r"^/api/kiosk/sessions/([^/]+)/qr\.png$", path)
         if match:
             row = get_kiosk(kiosk_id=match.group(1))
@@ -1460,6 +1472,21 @@ class Handler(SimpleHTTPRequestHandler):
                 "source": "booth",
             }
             status, data = agent_request("/print", body)
+            self.send_json(data, status)
+            return
+        if path == "/api/device/alerts/clear":
+            if not require_booth_auth(self):
+                return
+            status, data = agent_request("/alerts/clear", {})
+            self.send_json(data, status)
+            return
+        if path == "/api/device/printer/status":
+            if not require_booth_auth(self):
+                return
+            status, data = agent_request("/printer/status", {
+                "status": payload.get("status") or "ok",
+                "message": payload.get("message") or "",
+            })
             self.send_json(data, status)
             return
         if path == "/api/kiosk/cleanup":

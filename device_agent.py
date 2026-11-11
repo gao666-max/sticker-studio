@@ -25,14 +25,17 @@ from pathlib import Path
 HOST = "127.0.0.1"
 PORT = 8788
 ROOT = Path(__file__).resolve().parent
-EVENT_CLIENTS: list[queue.Queue] = []
-CLIENTS_LOCK = threading.Lock()
-PRINT_JOBS: dict[str, dict] = {}
-PAYMENTS: dict[str, dict] = {}
 
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+EVENT_CLIENTS: list[queue.Queue] = []
+CLIENTS_LOCK = threading.Lock()
+PRINT_JOBS: dict[str, dict] = {}
+PAYMENTS: dict[str, dict] = {}
+PRINTER = {"status": "ok", "message": "", "updatedAt": now()}
 
 
 def broadcast_event(payload: dict) -> int:
@@ -86,6 +89,7 @@ class Handler(BaseHTTPRequestHandler):
                 "port": PORT,
                 "time": now(),
                 "clients": len(EVENT_CLIENTS),
+                "printer": dict(PRINTER),
                 "capabilities": {
                     "events": True,
                     "print": "stub",
@@ -94,6 +98,22 @@ class Handler(BaseHTTPRequestHandler):
                     "printer": False,
                 },
             })
+            return
+        if path == "/alerts":
+            failed = [
+                job for job in PRINT_JOBS.values()
+                if job.get("status") == "failed" and not job.get("acknowledged")
+            ]
+            failed.sort(key=lambda item: item.get("createdTs", 0), reverse=True)
+            json_response(self, {
+                "count": len(failed) + (0 if PRINTER["status"] == "ok" else 1),
+                "printer": dict(PRINTER),
+                "failed": failed[:20],
+            })
+            return
+        if path == "/prints":
+            jobs = sorted(PRINT_JOBS.values(), key=lambda item: item.get("createdTs", 0), reverse=True)
+            json_response(self, {"jobs": jobs[:20]})
             return
         if path == "/events":
             self.send_response(200)
@@ -185,20 +205,88 @@ class Handler(BaseHTTPRequestHandler):
                 json_response(self, {"error": "sessionId is required"}, 400)
                 return
             job_id = "pr_" + uuid.uuid4().hex[:10]
+            failures = {
+                "no_paper": "打印机缺纸",
+                "jam": "打印机卡纸",
+                "offline": "打印机离线",
+            }
+            printer_error = failures.get(PRINTER["status"])
             job = {
                 "id": job_id,
                 "sessionId": session_id,
                 "imageUrl": image_url,
                 "copies": copies,
-                "status": "queued",
+                "status": "failed" if printer_error else "queued",
+                "error": printer_error or "",
+                "acknowledged": False,
                 "createdAt": now(),
                 "createdTs": time.time(),
             }
+            if printer_error:
+                job["finishedAt"] = now()
             PRINT_JOBS[job_id] = job
             # TODO(Friday): replace this with the printer SDK / Windows driver.
             # Example: printer.print_file(download(image_url), copies)
-            print(f"[device] print queued {job_id} session={session_id} copies={copies}", flush=True)
+            print(f"[device] print {job['status']} {job_id} session={session_id} copies={copies}", flush=True)
+            if printer_error:
+                broadcast_event({
+                    "type": "printer-alert",
+                    "status": PRINTER["status"],
+                    "message": printer_error,
+                    "jobId": job_id,
+                    "at": now(),
+                })
             json_response(self, job, 202)
+            return
+
+        if path == "/printer/status":
+            status = str(payload.get("status") or "ok")
+            if status not in ("ok", "no_paper", "jam", "offline"):
+                json_response(self, {"error": "status must be ok, no_paper, jam or offline"}, 400)
+                return
+            PRINTER["status"] = status
+            PRINTER["message"] = str(payload.get("message") or "")[:120]
+            PRINTER["updatedAt"] = now()
+            if status != "ok":
+                for job in PRINT_JOBS.values():
+                    if job.get("status") == "queued":
+                        job["status"] = "failed"
+                        job["error"] = PRINTER["message"] or status
+                        job["finishedAt"] = now()
+                        job["acknowledged"] = False
+            broadcast_event({
+                "type": "printer-alert",
+                "status": status,
+                "message": PRINTER["message"],
+                "at": now(),
+            })
+            json_response(self, {"ok": True, "printer": dict(PRINTER)})
+            return
+
+        match = re.match(r"^/print/([A-Za-z0-9_]+)/fail$", path)
+        if match:
+            job = PRINT_JOBS.get(match.group(1))
+            if not job:
+                json_response(self, {"error": "job not found"}, 404)
+                return
+            job["status"] = "failed"
+            job["error"] = str(payload.get("error") or "打印失败")[:120]
+            job["acknowledged"] = False
+            job["finishedAt"] = now()
+            json_response(self, job)
+            return
+
+        if path == "/alerts/clear":
+            cleared = 0
+            for job in PRINT_JOBS.values():
+                if job.get("status") == "failed" and not job.get("acknowledged"):
+                    job["acknowledged"] = True
+                    cleared += 1
+            if PRINTER["status"] != "ok":
+                PRINTER["status"] = "ok"
+                PRINTER["message"] = ""
+                PRINTER["updatedAt"] = now()
+            json_response(self, {"ok": True, "cleared": cleared})
             return
 
         if path == "/payment/intent":

@@ -151,7 +151,9 @@ USE_DSH_CREDENTIALS=0
 - kiosk 通过 SSE 连代理，事件处理和键盘共用一套
 - `hardware.html` 是硬件模拟器，没有硬件也能测
 - 打印 / 支付现在是 stub，按 [HARDWARE.md](HARDWARE.md) 换真实 SDK
-- `test_smoke.py` 一条命令测后端、PIN、设备事件、打印、支付
+- `test_smoke.py` 一条命令测后端、PIN、设备事件、打印、支付、缺纸告警
+- 打印失败、缺纸、卡纸会在运营台亮红色告警，可标记已处理
+- 20 单真实压测：成功率 95%，单均 97.8 秒，约 ¥0.39 一单，详见 [PERF.md](PERF.md)
 
 ```powershell
 python device_agent.py
@@ -196,8 +198,10 @@ sticker-studio/
 ├─ device_agent.py     # 本地设备代理：快门 / 打印 / 支付
 ├─ start-device-agent.bat
 ├─ HARDWARE.md         # 硬件协议与周五检查清单
+├─ PERF.md             # 20 单真实压测结果与产能估算
 ├─ test_smoke.py       # 无 AI 消耗的冒烟测试
 ├─ test_stress.py      # demo 连跑多单，自动清理
+├─ test_real20.py      # 真实 AI 20 单压测，产生报告
 ├─ start-kiosk.bat
 ├─ server.py           # 静态服务 + 订单 / Kiosk API + SQLite + 队列 + ZIP
 ├─ pipeline.py         # 去底、1024 角色、切帧、GIF、DashScope 适配
