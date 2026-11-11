@@ -64,6 +64,12 @@ h1{margin:0;font-family:var(--serif);font-weight:400;font-size:clamp(40px,6vw,72
 .form-grid input{width:100%;margin-top:4px;border:1px solid var(--line);background:var(--paper);padding:9px;font-size:12px}
 .setting-foot{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .hint{margin:12px 0 0;font-family:var(--mono);font-size:8px;line-height:1.7;color:var(--ink-3)}
+.hardware-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:9px;color:var(--ink-2)}
+.hardware-row b{font-weight:400}
+#agentDot{color:var(--ink-3)}
+#agentDot.online{color:#3e7a52}
+#agentDot.offline{color:var(--red)}
+@media(max-width:760px){.hardware-row{gap:10px}}
 .session-list{display:grid;gap:8px}
 .session{
   border:1px solid var(--line);background:var(--paper);padding:12px;

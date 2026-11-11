@@ -156,9 +156,10 @@ USE_DSH_CREDENTIALS=0
 ```powershell
 python device_agent.py
 python test_smoke.py
+python test_stress.py --count 5
 ```
 
-浏览器打开 `http://127.0.0.1:8787/hardware.html`。
+浏览器打开 `http://127.0.0.1:8787/hardware.html`。出片页有「打印一张」，运营台显示设备代理在线状态和打印 / 支付能力。
 
 ## 成本统计
 
@@ -196,6 +197,7 @@ sticker-studio/
 ├─ start-device-agent.bat
 ├─ HARDWARE.md         # 硬件协议与周五检查清单
 ├─ test_smoke.py       # 无 AI 消耗的冒烟测试
+├─ test_stress.py      # demo 连跑多单，自动清理
 ├─ start-kiosk.bat
 ├─ server.py           # 静态服务 + 订单 / Kiosk API + SQLite + 队列 + ZIP
 ├─ pipeline.py         # 去底、1024 角色、切帧、GIF、DashScope 适配

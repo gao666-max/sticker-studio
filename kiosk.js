@@ -57,6 +57,10 @@
     });
   }
 
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   function toastMessage(message) {
     toast.textContent = message;
     toast.classList.add("is-show");
@@ -426,6 +430,8 @@
     $("gifImg").src = data.gif_url ? data.gif_url + "?t=" + Date.now() : "";
     $("qrImg").src = data.qr_url ? data.qr_url + "?t=" + Date.now() : "";
     $("claimCode").textContent = (data.token || "").slice(0, 6).toUpperCase();
+    $("printNote").textContent = "有打印机时可直接打印，没有打印机会自动跳过。";
+    $("printGif").disabled = false;
     countdownValue = 0;
     if (data.expires_at) {
       const end = new Date(data.expires_at).getTime();
@@ -434,10 +440,11 @@
     updateCountdown();
     clearInterval(countdownTimer);
     countdownTimer = setInterval(updateCountdown, 1000);
+    const claimHost = data.claim_url ? new URL(data.claim_url).hostname : location.hostname;
     $("qrNote").textContent = expired || countdownValue <= 0
       ? "二维码已过期，请点击「重新获取」。"
-      : (["127.0.0.1", "localhost"].indexOf(location.hostname) !== -1
-        ? "本机演示二维码。手机扫码前，请用局域网 IP 打开本页，或设置 PUBLIC_BASE_URL。"
+      : (["127.0.0.1", "localhost"].indexOf(claimHost) !== -1
+        ? "本机演示二维码。手机扫码前，请到运营台把手机访问地址改成局域网 IP。"
         : "二维码绑定唯一作品 ID，过期后需要重新获取。");
   }
 
@@ -452,6 +459,45 @@
     const seconds = countdownValue % 60;
     label.textContent = String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
     countdownValue -= 1;
+  }
+
+  async function printGif() {
+    if (!session || !session.gif_url) {
+      $("printNote").textContent = "还没有作品，暂时不能打印。";
+      return;
+    }
+    const button = $("printGif");
+    button.disabled = true;
+    $("printNote").textContent = "正在连接打印机…";
+    const imageUrl = new URL(session.gif_url, location.origin).href;
+    try {
+      const health = await fetch("http://127.0.0.1:8788/health", { cache: "no-store" });
+      if (!health.ok) throw new Error("device offline");
+      const created = await fetch("http://127.0.0.1:8788/print", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: session.id, imageUrl, copies: 1, source: "kiosk" })
+      });
+      const job = await created.json();
+      if (!created.ok) throw new Error(job.error || "print failed");
+      $("printNote").textContent = "已发送打印，请到取片口等候…";
+      for (let i = 0; i < 30; i += 1) {
+        await sleep(1000);
+        const response = await fetch("http://127.0.0.1:8788/print/" + encodeURIComponent(job.id), { cache: "no-store" });
+        const current = await response.json();
+        if (current.status === "printed") {
+          $("printNote").textContent = "已出片，请从取片口取走。";
+          button.disabled = false;
+          return;
+        }
+        if (current.status === "failed") throw new Error(current.error || "printer failed");
+      }
+      $("printNote").textContent = "打印超时，请叫现场工作人员。";
+    } catch (e) {
+      $("printNote").textContent = "打印未连接或失败，可先用手机扫码领取。";
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function refreshQr() {
@@ -476,6 +522,7 @@
     gifLocked = false;
     counting = false;
     countdownValue = 30 * 60;
+    $("printNote").textContent = "有打印机时可直接打印，没有打印机会自动跳过。";
     setState("PREVIEW");
     startCamera();
   }
@@ -530,6 +577,7 @@
     $("actionNext").addEventListener("click", () => rotateAction(1));
     $("actionConfirm").addEventListener("click", startGif);
     $("gifBack").addEventListener("click", () => { setState("ACTION"); renderActions(); });
+    $("printGif").addEventListener("click", printGif);
     $("refreshQr").addEventListener("click", refreshQr);
     $("newSession").addEventListener("click", resetToPreview);
 

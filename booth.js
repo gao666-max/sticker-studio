@@ -58,7 +58,7 @@
       hideLogin();
       await loadAll();
       clearInterval(refreshTimer);
-      refreshTimer = setInterval(loadSessions, 10000);
+      refreshTimer = setInterval(() => { loadSessions(); checkHardware(); }, 10000);
     } catch (e) {
       $("loginNote").textContent = e.message;
     }
@@ -187,10 +187,43 @@
     renderSessions(data.sessions || []);
   }
 
+  async function checkHardware() {
+    try {
+      const data = await api("/api/device/health");
+      $("agentDot").className = "online";
+      $("hardwareNote").textContent = "在线 · 127.0.0.1:8788 · clients " + (data.clients || 0);
+      const caps = data.capabilities || {};
+      $("printMode").textContent = caps.print === "stub" ? "stub" : (caps.print ? "已接" : "未接");
+      $("payMode").textContent = caps.payment === "stub" ? "stub" : (caps.payment ? "已接" : "未接");
+      $("hardwareHint").textContent = caps.printer
+        ? "打印机已接。先打一张测试图，确认边距和颜色。"
+        : "现在打印和支付是 stub。按 HARDWARE.md 在 device_agent.py 里换真实 SDK。";
+    } catch (e) {
+      $("agentDot").className = "offline";
+      $("hardwareNote").textContent = "离线 · 先运行 start-device-agent.bat";
+      $("printMode").textContent = "—";
+      $("payMode").textContent = "—";
+    }
+  }
+
+  async function testPrint() {
+    try {
+      const data = await api("/api/device/print", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: "booth-test", copies: 1 })
+      });
+      toast("测试打印已入队 " + (data.id || ""));
+    } catch (e) {
+      toast("打印代理未连接：" + e.message);
+    }
+  }
+
   async function loadAll() {
     try {
       await loadSettings();
       await loadSessions();
+      await checkHardware();
     } catch (e) {
       toast("读取失败：" + e.message);
     }
@@ -248,6 +281,7 @@
     $("refreshBtn").addEventListener("click", loadAll);
     $("saveSettings").addEventListener("click", saveSettings);
     $("cleanupBtn").addEventListener("click", cleanup);
+    $("testPrint").addEventListener("click", testPrint);
     $("loginBtn").addEventListener("click", login);
     $("loginPin").addEventListener("keydown", (event) => {
       if (event.key === "Enter") login();
@@ -276,7 +310,7 @@
     hideLogin();
     loadAll();
     clearInterval(refreshTimer);
-    refreshTimer = setInterval(loadSessions, 10000);
+    refreshTimer = setInterval(() => { loadSessions(); checkHardware(); }, 10000);
   }
 
   start();

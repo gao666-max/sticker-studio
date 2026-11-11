@@ -58,7 +58,7 @@ server.py（业务后端，8787）
 
 `GET /print/{id}` 查询状态。现在 stub 1 秒后变 `printed`。
 
-周五要替换的部分在 `device_agent.py` 的 `handle_print`：
+周五要替换的部分在 `device_agent.py` 的 `do_POST` `/print` 分支：
 
 - DNP DS-RX1HS：用 DNP 驱动 / SDK 打 4×6
 - 热敏：Windows 驱动或 ESC/POS
@@ -109,7 +109,10 @@ server.py（业务后端，8787）
 ```powershell
 python device_agent.py
 python test_smoke.py
+python test_stress.py --count 5
 ```
+
+`test_stress.py` 用 demo 模式连跑 5 单，不花 AI 费用，跑完自动删除会话并恢复原来的 provider。
 
 浏览器打开：
 

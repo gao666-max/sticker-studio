@@ -32,7 +32,9 @@ import socket
 import sqlite3
 import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 import uuid
 import webbrowser
 import zipfile
@@ -130,6 +132,30 @@ def effective_base_url() -> str:
     if STUDIO_HOST == "0.0.0.0":
         return f"http://{detect_lan_ip()}:{ACTIVE_PORT}"
     return f"http://127.0.0.1:{ACTIVE_PORT}"
+
+
+DEVICE_AGENT_BASE = "http://127.0.0.1:8788"
+
+
+def agent_request(path: str, payload=None):
+    data = None
+    headers = {"Content-Type": "application/json"}
+    method = "GET"
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        method = "POST"
+    request = urllib.request.Request(DEVICE_AGENT_BASE + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        try:
+            body = json.loads(exc.read())
+        except Exception:
+            body = {"error": f"device agent HTTP {exc.code}"}
+        return exc.code, body
+    except Exception as exc:
+        return 503, {"ok": False, "error": "device agent offline: " + str(exc)[:120]}
 
 
 DEFAULT_PIN_HASH = hashlib.sha256(b"2468").hexdigest()
@@ -1250,6 +1276,12 @@ class Handler(SimpleHTTPRequestHandler):
             limit = int(query.get("limit", ["50"])[0])
             self.send_json(list_kiosk(limit))
             return
+        if path == "/api/device/health":
+            if not require_booth_auth(self):
+                return
+            status, data = agent_request("/health")
+            self.send_json(data, status)
+            return
         match = re.match(r"^/api/kiosk/sessions/([^/]+)/qr\.png$", path)
         if match:
             row = get_kiosk(kiosk_id=match.group(1))
@@ -1417,6 +1449,18 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_json({"error": str(exc)}, 400)
                 return
             self.send_json(public_settings(settings))
+            return
+        if path == "/api/device/print":
+            if not require_booth_auth(self):
+                return
+            body = {
+                "sessionId": str(payload.get("sessionId") or "booth-test"),
+                "imageUrl": str(payload.get("imageUrl") or ""),
+                "copies": max(1, min(10, int(payload.get("copies") or 1))),
+                "source": "booth",
+            }
+            status, data = agent_request("/print", body)
+            self.send_json(data, status)
             return
         if path == "/api/kiosk/cleanup":
             if not require_booth_auth(self):
