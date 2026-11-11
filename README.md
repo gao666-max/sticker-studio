@@ -168,6 +168,8 @@ sticker-studio/
 ├─ workflow.md         # 完整生产工作流与提示词
 ├─ workflow.yaml       # 参数化版本
 ├─ assets/             # 演示素材
+│  ├─ character.webp
+│  ├─ character_master.png
 └─ data/               # 运行时订单与生成结果，已 gitignore
 ```
 

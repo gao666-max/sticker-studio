@@ -2,7 +2,7 @@
 
 The source code is licensed under MIT. The demo assets are not.
 
-`assets/character.webp`, `assets/gif-*.gif`, `assets/love-smooth.gif`,
+`assets/character.webp`, `assets/character_master.png`, `assets/gif-*.gif`, `assets/love-smooth.gif`,
 `assets/ask.gif`, `assets/asset-*.webp`, `assets/deliver/*`, and the screenshots
 in `docs/` are included only so the project runs out of the box. They are
 original demonstration illustrations and sticker outputs.
