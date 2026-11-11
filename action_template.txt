@@ -1,0 +1,31 @@
+ACTION TEMPLATE
+
+Use the uploaded reference character image as the ONLY character design reference.
+Maintain the exact same character identity, hairstyle, blue flower hair clip,
+facial features, pearl necklace, blue floral qipao, olive-green coat and
+illustration style.
+
+【Action】
+{ACTION}
+
+【Facial Expression】
+{EXPRESSION}
+
+【Composition】
+- Full character visible, centered composition.
+- Natural and expressive body language.
+- Clear silhouette, readable at small sticker size.
+- Keep all body parts and accessories inside the canvas.
+
+【Art Style】
+Follow the fixed visual style in style_lock.txt exactly.
+
+【Background】
+Fully transparent PNG background with genuine alpha transparency.
+No background scenery, no checkerboard, no beige fill, no text, no watermark, no border.
+
+All 16 frames must depict the exact same character model. Only pose, facial
+expression and small action-related props may change. Do not generate 16
+different character interpretations.
+
+Do not redesign the character. Only change the pose, action and facial expression.

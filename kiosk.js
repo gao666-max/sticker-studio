@@ -343,7 +343,8 @@
       "The character stays the same size and on the same ground line, fully inside each cell with at least 8% margin. No cropped feet, no duplicated limbs, no extra people.\n\n" +
       "Animation: " + action.action + ". Start and end with the same pose so it loops.\n\n" +
       "Every cell has the exact Simplified Chinese caption \"" + action.word + "\" at the bottom, with a thick white sticker outline around the character and caption. No other text, no wrong characters, no English.\n\n" +
-      "Art direction: cute cartoon, thick clean dark outlines, flat colors, warm 1990s Chinese retro palette. No watermark, no logo, no signature.";
+      "All 16 frames must depict the exact same character model. Only pose, facial expression and small action-related props may change. Do not generate 16 different character interpretations.\n\n" +
+      "Art direction: premium Japanese anime-inspired chibi, soft painterly rendering, refined cel shading, thick clean dark brown outlines, detailed wavy hair, warm nostalgic palette, high-quality commercial LINE sticker. No watermark, logo or signature.";
   }
 
   function renderActions() {

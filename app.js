@@ -57,33 +57,54 @@
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
-  var STYLE_LINES = {
-    cute: "cute cartoon sticker, thick clean dark outlines, flat colors, warm 1990s Chinese retro palette",
-    soft: "soft hand-drawn illustration, gentle paper texture, muted warm palette, delicate linework",
-    bold: "exaggerated cartoon comedy, bold shapes, high-energy poses, bright saturated colors"
-  };
+  var DEFAULT_STYLE_LOCK = "STYLE LOCK · premium Japanese anime-inspired chibi sticker illustration, soft painterly rendering, refined cel shading, rich warm nostalgic palette, thick clean dark brown outlines, detailed wavy hair with layered strands and soft highlights, delicate facial features, rosy cheeks, expressive eyes, warm natural smile, soft dimensional lighting, subtle fabric texture, high-quality commercial LINE sticker aesthetic. Cute, elegant, expressive and charming.\n\n" +
+    "Preserve the exact character identity, facial proportions, hairstyle, accessories, clothing design and color palette from the reference image. Never redesign the character, change age, change gender or swap the outfit. Keep the same silhouette and visual DNA in every frame.\n\n" +
+    "Crisp outlines, clean edges, polished details, consistent proportions, recognizable silhouette. No photorealism, no 3D rendering, no flat minimalist vector art. Genuine alpha transparency, no painted checkerboard, no beige background, no fake transparency. Character centered, clear silhouette, readable at small sticker size. No watermark, logo, signature or AI mark.";
+  var styleLockText = DEFAULT_STYLE_LOCK;
   var TONE_LINES = {
     short: "short, punchy, two to four characters, everyday WeChat chat",
     warm: "gentle and conversational, like a kind aunt talking to family",
     playful: "playful and slightly teasing, with a sense of humor"
   };
-  var contentSettings = { style: "cute", tone: "short", extra: "" };
+  var contentSettings = { style: "locked", tone: "short", extra: "" };
+
+  async function loadStyleLock() {
+    try {
+      var response = await fetch("style_lock.txt", { cache: "no-store" });
+      if (response.ok) {
+        var text = (await response.text()).trim();
+        if (text) {
+          styleLockText = text;
+          app.states.forEach(function (state) {
+            if (!state.promptCustom) state.prompt = buildPrompt(state);
+          });
+          save();
+          renderAll();
+        }
+      }
+    } catch (e) {
+      /* fallback to the embedded lock */
+    }
+  }
 
   function buildPrompt(s) {
     var action = (s.action || "自然微笑，轻轻点头").trim();
     var caption = (s.caption || s.word || "").trim();
-    var styleLine = STYLE_LINES[contentSettings.style] || STYLE_LINES.cute;
+    var expression = (s.expression || "自然、温暖、有亲和力").trim();
     var toneLine = TONE_LINES[contentSettings.tone] || TONE_LINES.short;
-    return "Use the character in the reference image exactly: same face, same hair, same outfit, same accessories, same line style. Do not redesign the character.\n\n" +
+    return styleLockText + "\n\n" +
+      "The uploaded character master is the ONLY identity reference. Use the character in the reference image exactly: same face, same hair, same outfit, same accessories, same line style. Do not redesign the character.\n\n" +
+      "ACTION: " + action + "\n" +
+      "FACIAL EXPRESSION: " + expression + "\n\n" +
       "Draw ONE square image: exactly 4 columns x 4 rows = 16 equal square cells. Read left to right, top to bottom, each cell is the next frame of one short looping animation. No grid lines, no borders, no numbers. Every one of the 16 cells must contain the character; no empty cells.\n\n" +
-      "Background must be truly transparent (PNG alpha). Do NOT paint a grey-and-white checkerboard pattern, a solid beige background, or any background decoration.\n\n" +
+      "All 16 frames must depict the exact same character model. Only pose, facial expression and small action-related props may change. Do not generate 16 different character interpretations.\n\n" +
       "In every cell the character stays exactly the same size and on the same ground line, fully inside the cell with at least 8% empty margin on all four sides. No cropped feet, no duplicated limbs, no extra people.\n\n" +
       "Row 1 (frames 1-4): " + action + "，动作开始。\n" +
       "Row 2 (frames 5-8): " + action + "，动作展开。\n" +
       "Row 3 (frames 9-12): " + action + "，情绪最满。\n" +
       "Row 4 (frames 13-16): 回到起始姿势，第 16 帧接回第 1 帧。\n\n" +
       "Every cell has the same bold hand-lettered caption \"" + caption + "\" at the bottom, with a thick white sticker outline around both the caption and the character. The only text in the image is that exact Simplified Chinese caption. Check every character; no wrong characters, no extra words, no English.\n\n" +
-      "Art direction: " + styleLine + ". The caption should feel " + toneLine + ".\n" +
+      "The caption should feel " + toneLine + ".\n" +
       (contentSettings.extra ? "Extra client note: " + contentSettings.extra + "\n" : "") + "\n" +
       "Absolutely no watermark, no logo, no signature, no \"AI generated\" mark anywhere in the image.";
   }
@@ -1643,6 +1664,7 @@
     renderAll();
     bindEvents();
     checkBackend().then(fetchSettings);
+    loadStyleLock();
     if (window.location.protocol === "file:") {
       els.downloadNote.textContent = "当前是 file://，浏览器不能打包本地文件。请用 start-studio.bat 启动后端后再下载 ZIP。";
     }

@@ -337,20 +337,23 @@ def character_quality(image: Image.Image) -> dict:
 
 
 CHARACTER_PROMPT = (
-    "Turn the subject of this photo into an original, heavily stylized cute cartoon sticker character: "
-    "cute cartoon, thick clean dark outlines, flat colors, warm 1990s Chinese retro palette. "
+    "Turn the subject of this photo into a premium Japanese anime-inspired chibi sticker character: "
+    "soft painterly rendering, refined cel shading, thick clean dark brown outlines, detailed wavy hair, "
+    "delicate facial features, warm nostalgic palette, high-quality commercial LINE sticker aesthetic. "
     "Keep the identifying features of the person. It must clearly read as a drawing, never photorealistic. "
     "Front-facing full body, centered, head to toe, plain uniform pure white (#FFFFFF) background, "
-    "no shadow, no floor, no props, no text, no border."
+    "no shadow, no floor, no props, no text, no border, no checkerboard."
 )
 
 CHARACTER_PROMPT_BUST = (
-    "Turn this photo into a high-quality cute cartoon sticker of the SAME person, head and shoulders only. "
+    "Turn this photo into a premium Japanese anime-inspired chibi sticker of the SAME person, head and shoulders only. "
     "Preserve the exact identity: face shape, eye shape, eyebrows, nose, lips, age, skin tone, hairstyle, hairline, "
     "glasses if present, and the clothing visible at the shoulders. Do not invent a different body, do not slim, "
     "do not beautify, do not change gender or age, do not add legs or a full body. "
-    "Cute but recognizable caricature, thick clean dark outlines, flat colors, soft shading, warm palette. "
-    "Plain uniform pure white (#FFFFFF) background, centered, no props, no text, no border, no watermark."
+    "Soft painterly rendering, refined cel shading, thick clean dark brown outlines, detailed wavy hair, "
+    "delicate features, rosy cheeks, warm nostalgic palette, commercial LINE sticker quality. "
+    "Plain uniform pure white (#FFFFFF) background, centered, no props, no text, no border, no watermark, "
+    "no checkerboard."
 )
 
 
@@ -488,7 +491,9 @@ def generate_kiosk_keypose(character_path: Path, action: dict, out_dir: Path,
         "same age, same line style. Do not redesign the character. Draw ONE cute cartoon sticker, "
         "same framing as the reference character, upper body if the reference is a bust, with this action: "
         + pose + ". Preserve the identifying facial features. Plain pure white (#FFFFFF) background, "
-        "thick clean dark outline, flat colors, warm palette, no text, no border, no watermark."
+        "premium Japanese anime-inspired chibi, soft painterly rendering, refined cel shading, thick dark brown outlines, "
+        "detailed wavy hair, warm nostalgic palette, commercial LINE sticker quality, no text, no border, no watermark, "
+        "no checkerboard."
     )
     raw = out_dir / "pose_raw.png"
     clean = out_dir / "pose.png"

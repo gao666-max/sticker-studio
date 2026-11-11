@@ -125,6 +125,17 @@ PUBLIC_BASE_URL=http://192.168.1.23:8787
 
 `PUBLIC_BASE_URL` 必须是手机能访问的地址；二维码会用它生成。正式部署建议 HTTPS 域名。
 
+如果手机扫码后打不开：
+
+1. 二维码里不能是 `127.0.0.1` 或 `localhost`，必须是电脑的局域网 IP。
+2. 手机和电脑必须在同一个 Wi-Fi。
+3. Windows 防火墙要允许 Python 或 8787 端口入站。最简单是用管理员 PowerShell 加一条：
+   ```powershell
+   New-NetFirewallRule -DisplayName "Sticker Studio 8787" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8787 -Profile Private
+   ```
+4. 电脑 IP 变了，`PUBLIC_BASE_URL` 也要跟着改，然后重启服务。
+5. 重启后重新生成二维码，旧二维码不会自动变。
+
 ## 接口
 
 | 方法 | 路径 | 说明 |

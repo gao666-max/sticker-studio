@@ -90,6 +90,15 @@ USE_DSH_CREDENTIALS=0
 
 当前只适配 DashScope 兼容接口。要接 OpenAI、即梦或其他厂商，需要在 `pipeline.py` 里新增 adapter。
 
+## 风格锁与角色母版
+
+固定画风在 `style_lock.txt`，蓝花旗袍角色细节在 `character_lock.txt`，动作模板在 `action_template.txt`。生成时不再每次重写画风，只改动作和表情。
+
+- 角色母版只上传一次，所有表情、头像、封面都引用它
+- 母版用干净透明 PNG，不要拿带棋盘格和字幕的成品截图当母版
+- 4×4 提示词强制 16 格是同一个角色，只允许姿势、表情和小道具变化
+- Kiosk 近景默认半身，避免给自拍硬编一个身体
+
 ![后台设置](docs/settings.png)
 
 ## 现场拍照亭
@@ -153,6 +162,9 @@ sticker-studio/
 ├─ .env.example
 ├─ BACKEND.md          # 接口、队列、数据模型
 ├─ KIOSK.md            # 拍照亭流程、硬件与二维码
+├─ style_lock.txt      # 固定画风
+├─ character_lock.txt  # 蓝花旗袍角色细节
+├─ action_template.txt # 动作模板
 ├─ workflow.md         # 完整生产工作流与提示词
 ├─ workflow.yaml       # 参数化版本
 ├─ assets/             # 演示素材

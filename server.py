@@ -134,7 +134,7 @@ PRICE_OUTPUT_USD = float(os.environ.get("DASHSCOPE_PRICE_OUTPUT_USD", "0.024754"
 USD_TO_CNY = float(os.environ.get("USD_TO_CNY", "7.1"))
 
 SETTINGS_PATH = DATA / "settings.json"
-CONTENT_STYLES = {"cute", "soft", "bold"}
+CONTENT_STYLES = {"locked", "cute", "soft", "bold"}
 CAPTION_TONES = {"short", "warm", "playful"}
 
 
@@ -170,9 +170,7 @@ def load_settings():
     provider = str(saved.get("provider") or os.environ.get("IMAGE_PROVIDER") or "demo").lower()
     if provider not in ("demo", "dashscope"):
         provider = "demo"
-    style = str(saved.get("contentStyle") or "cute")
-    if style not in CONTENT_STYLES:
-        style = "cute"
+    style = "locked"
     tone = str(saved.get("captionTone") or "short")
     if tone not in CAPTION_TONES:
         tone = "short"
