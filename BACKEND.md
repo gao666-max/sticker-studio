@@ -157,14 +157,20 @@ POST /api/settings
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/kiosk/sessions` | 创建会话，body `{photo: dataURL}` |
+| GET | `/api/kiosk/sessions` | 最近会话与运营统计 |
 | GET | `/api/kiosk/sessions/{id}` | 查询状态、角色、GIF、二维码 |
 | POST | `/api/kiosk/sessions/{id}/retry-character` | 重新生成角色 |
+| POST | `/api/kiosk/sessions/{id}/retry-gif` | 重新生成上一次动作 |
 | POST | `/api/kiosk/sessions/{id}/gif` | 提交动作，body `{action}` |
 | POST | `/api/kiosk/sessions/{id}/refresh` | 刷新二维码与有效期 |
+| DELETE | `/api/kiosk/sessions/{id}` | 删除会话与文件 |
+| POST | `/api/kiosk/cleanup` | 删除超过保留时间的会话 |
 | GET | `/api/kiosk/sessions/{id}/qr.png` | 领取二维码 |
 | GET | `/api/claims/{token}` | 领取页数据 |
 | GET | `/api/claims/{token}/download` | 下载 GIF |
 | GET | `/claim/{token}` | 手机领取页 |
+
+运营设置通过 `POST /api/settings` 保存 `publicBaseUrl`、`deviceName`、`retentionHours`。`GET /api/settings` 会返回 `booth.effectiveBaseUrl`、`lanIp`、`port`。
 
 Kiosk 状态：`character_queued / character_processing / character_ready / character_failed / gif_queued / gif_generating / gif_ready / gif_failed / expired`。
 

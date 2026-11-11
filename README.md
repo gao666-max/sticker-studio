@@ -125,6 +125,19 @@ USE_DSH_CREDENTIALS=0
 
 硬件桥接、状态机、二维码和接口见 [KIOSK.md](KIOSK.md)。
 
+## 现场运营
+
+`booth.html` 是给运营看的控制台：
+
+- 今日会话、已出片、进行中、失败 / 过期
+- 最近会话：角色、GIF、二维码、领取链接
+- 失败重试角色 / GIF，异常会话删除
+- 设备名、手机访问地址、保留小时
+- 自动检测局域网 IP，一键复制手机访问地址
+- 按保留时间清理旧会话和作品
+
+改手机访问地址不用再手改 `.env`，保存后重新生成二维码即可。
+
 ## 成本统计
 
 `GET /api/usage` 返回累计、今日、本月、近 14 天、按类型、最近调用与预估成本。
@@ -153,6 +166,9 @@ sticker-studio/
 ├─ claim.html          # 手机领取页
 ├─ claim.css
 ├─ claim.js
+├─ booth.html          # 现场运营控制台
+├─ booth.css
+├─ booth.js
 ├─ start-kiosk.bat
 ├─ server.py           # 静态服务 + 订单 / Kiosk API + SQLite + 队列 + ZIP
 ├─ pipeline.py         # 去底、1024 角色、切帧、GIF、DashScope 适配
@@ -182,8 +198,12 @@ sticker-studio/
 | POST | `/api/settings` | 保存 provider、模型、Key、价格、内容风格 |
 | GET | `/api/usage` | 调用次数、成本、趋势、最近调用 |
 | POST | `/api/kiosk/sessions` | 上传照片，创建拍照亭会话 |
+| GET | `/api/kiosk/sessions` | 最近会话与运营统计 |
 | GET | `/api/kiosk/sessions/{id}` | 查询角色、GIF、二维码 |
 | POST | `/api/kiosk/sessions/{id}/gif` | 选择动作，生成 GIF |
+| POST | `/api/kiosk/sessions/{id}/retry-gif` | 重试上一次动作 |
+| DELETE | `/api/kiosk/sessions/{id}` | 删除会话与文件 |
+| POST | `/api/kiosk/cleanup` | 清理过期会话 |
 | GET | `/claim/{token}` | 手机领取页 |
 | GET | `/api/orders` | 最近订单 |
 | POST | `/api/orders` | 创建订单，角色图 + pack + states |

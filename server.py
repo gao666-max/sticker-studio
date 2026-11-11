@@ -25,6 +25,8 @@ import json
 import os
 import queue
 import re
+import shutil
+import socket
 import sqlite3
 import threading
 import time
@@ -106,6 +108,26 @@ KIOSK_QUEUE: "queue.Queue[tuple]" = queue.Queue()
 KIOSK_EXPIRY_MINUTES = 30
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 STUDIO_HOST = os.environ.get("STUDIO_HOST", "127.0.0.1")
+ACTIVE_PORT = 8787
+
+
+def detect_lan_ip() -> str:
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.connect(("8.8.8.8", 80))
+        ip = sock.getsockname()[0]
+        sock.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+def effective_base_url() -> str:
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL
+    if STUDIO_HOST == "0.0.0.0":
+        return f"http://{detect_lan_ip()}:{ACTIVE_PORT}"
+    return f"http://127.0.0.1:{ACTIVE_PORT}"
 
 DEMO_MAP = {
     "receive": "gif-01.gif",
@@ -187,11 +209,14 @@ def load_settings():
         "contentStyle": style,
         "captionTone": tone,
         "promptExtra": str(saved.get("promptExtra") or "")[:500],
+        "publicBaseUrl": str(saved.get("publicBaseUrl") or os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/"),
+        "deviceName": str(saved.get("deviceName") or "拍照亭 01")[:60],
+        "retentionHours": int(saved.get("retentionHours") or 24),
     }
 
 
 def apply_settings(settings):
-    global PRICE_INPUT_USD, PRICE_OUTPUT_USD, USD_TO_CNY
+    global PRICE_INPUT_USD, PRICE_OUTPUT_USD, USD_TO_CNY, PUBLIC_BASE_URL
     pipeline.configure(
         provider=settings["provider"],
         model=settings["model"],
@@ -201,6 +226,7 @@ def apply_settings(settings):
     PRICE_INPUT_USD = settings["priceInputUsd"]
     PRICE_OUTPUT_USD = settings["priceOutputUsd"]
     USD_TO_CNY = settings["usdToCny"]
+    PUBLIC_BASE_URL = settings["publicBaseUrl"].rstrip("/")
     return settings
 
 
@@ -220,6 +246,15 @@ def public_settings(settings):
             "style": settings["contentStyle"],
             "tone": settings["captionTone"],
             "extra": settings["promptExtra"],
+        },
+        "booth": {
+            "publicBaseUrl": settings["publicBaseUrl"],
+            "effectiveBaseUrl": effective_base_url(),
+            "deviceName": settings["deviceName"],
+            "retentionHours": settings["retentionHours"],
+            "lanIp": detect_lan_ip(),
+            "port": ACTIVE_PORT,
+            "host": STUDIO_HOST,
         },
     }
 
@@ -248,6 +283,16 @@ def save_settings(payload):
     output_price = _safe_float(payload.get("priceOutputUsd"), current["priceOutputUsd"])
     rate = _safe_float(payload.get("usdToCny"), current["usdToCny"])
 
+    public_base = str(payload.get("publicBaseUrl", current["publicBaseUrl"])).strip().rstrip("/")
+    if public_base and not public_base.startswith(("http://", "https://")):
+        raise ValueError("publicBaseUrl must be an http(s) URL or empty")
+    device_name = str(payload.get("deviceName", current["deviceName"])).strip()[:60] or "拍照亭 01"
+    try:
+        retention_hours = int(payload.get("retentionHours", current["retentionHours"]))
+    except (TypeError, ValueError):
+        retention_hours = current["retentionHours"]
+    retention_hours = max(1, min(720, retention_hours))
+
     if payload.get("clearKey"):
         api_key = ""
         key_written = True
@@ -268,6 +313,9 @@ def save_settings(payload):
         "contentStyle": style,
         "captionTone": tone,
         "promptExtra": str(payload.get("promptExtra", current["promptExtra"]))[:500],
+        "publicBaseUrl": public_base,
+        "deviceName": device_name,
+        "retentionHours": retention_hours,
     }
 
     file_data = {
@@ -280,6 +328,9 @@ def save_settings(payload):
         "contentStyle": style,
         "captionTone": tone,
         "promptExtra": effective["promptExtra"],
+        "publicBaseUrl": public_base,
+        "deviceName": device_name,
+        "retentionHours": retention_hours,
     }
     if payload.get("clearKey"):
         file_data["apiKey"] = ""
@@ -366,6 +417,7 @@ def init_db():
                 gif_path TEXT,
                 action_json TEXT,
                 portrait_mode TEXT NOT NULL DEFAULT 'bust',
+                retries INTEGER NOT NULL DEFAULT 0,
                 error TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -376,6 +428,8 @@ def init_db():
         columns = [row[1] for row in conn.execute("PRAGMA table_info(kiosk_sessions)").fetchall()]
         if "portrait_mode" not in columns:
             conn.execute("ALTER TABLE kiosk_sessions ADD COLUMN portrait_mode TEXT NOT NULL DEFAULT 'bust'")
+        if "retries" not in columns:
+            conn.execute("ALTER TABLE kiosk_sessions ADD COLUMN retries INTEGER NOT NULL DEFAULT 0")
 
 
 def save_data_url(data_url: str | None, target_stem: str, target_dir: Path) -> str | None:
@@ -777,10 +831,12 @@ def update_kiosk(kiosk_id: str, **fields):
 def kiosk_base(handler=None) -> str:
     if PUBLIC_BASE_URL:
         return PUBLIC_BASE_URL
+    if STUDIO_HOST == "0.0.0.0":
+        return effective_base_url()
     if handler is not None:
         host = handler.headers.get("Host") or f"127.0.0.1:{handler.server.server_port}"
         return f"http://{host}"
-    return "http://127.0.0.1:8787"
+    return effective_base_url()
 
 
 def serialize_kiosk(row, base_url: str) -> dict:
@@ -815,6 +871,7 @@ def serialize_kiosk(row, base_url: str) -> dict:
         "claim_path": f"/claim/{token}",
         "claim_url": f"{base_url}/claim/{token}",
         "portrait_mode": row["portrait_mode"] or "bust",
+        "retries": int(row["retries"] or 0),
         "expires_at": expires,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -912,8 +969,14 @@ def process_kiosk(kind: str, kiosk_id: str, payload: dict):
             expires = (datetime.now(timezone.utc) + timedelta(minutes=KIOSK_EXPIRY_MINUTES)).isoformat(timespec="seconds")
             update_kiosk(kiosk_id, status="gif_ready", gif_path="files/01.gif", expires_at=expires, error=None)
     except Exception as exc:
-        status = "character_failed" if kind == "character" else "gif_failed"
-        update_kiosk(kiosk_id, status=status, error=str(exc)[:300])
+        retries = int(row["retries"] or 0)
+        if retries < 1:
+            next_status = "character_queued" if kind == "character" else "gif_queued"
+            update_kiosk(kiosk_id, status=next_status, retries=retries + 1, error=None)
+            KIOSK_QUEUE.put((kind, kiosk_id, payload))
+        else:
+            status = "character_failed" if kind == "character" else "gif_failed"
+            update_kiosk(kiosk_id, status=status, error=str(exc)[:300])
 
 
 def kiosk_worker():
@@ -925,6 +988,68 @@ def kiosk_worker():
             update_kiosk(kiosk_id, status="character_failed" if kind == "character" else "gif_failed", error="kiosk worker error")
         finally:
             KIOSK_QUEUE.task_done()
+
+
+def cleanup_kiosk(hours: int | None = None) -> int:
+    settings = load_settings()
+    retention = max(1, min(720, int(hours or settings["retentionHours"])))
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=retention)).isoformat(timespec="seconds")
+    with db() as conn:
+        rows = conn.execute("SELECT id FROM kiosk_sessions WHERE updated_at < ?", (cutoff,)).fetchall()
+    removed = 0
+    for row in rows:
+        shutil.rmtree(KIOSK_DIR / row["id"], ignore_errors=True)
+        with db() as conn:
+            conn.execute("DELETE FROM kiosk_sessions WHERE id = ?", (row["id"],))
+        removed += 1
+    return removed
+
+
+def recover_kiosk() -> int:
+    with db() as conn:
+        cursor = conn.execute(
+            "UPDATE kiosk_sessions SET status = CASE WHEN status LIKE 'gif%' THEN 'gif_failed' ELSE 'character_failed' END, "
+            "error = '服务重启，请重新生成', updated_at = ? "
+            "WHERE status IN ('character_queued','character_processing','gif_queued','gif_generating')",
+            (now(),),
+        )
+        return cursor.rowcount
+
+
+def cleanup_worker():
+    while True:
+        time.sleep(600)
+        try:
+            cleanup_kiosk()
+        except Exception:
+            pass
+
+
+def list_kiosk(limit: int = 50) -> dict:
+    limit = max(1, min(200, int(limit)))
+    with db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM kiosk_sessions ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        total = conn.execute("SELECT COUNT(*) AS n FROM kiosk_sessions").fetchone()["n"]
+    base = effective_base_url()
+    sessions = [serialize_kiosk(row, base) for row in rows]
+    ready = sum(1 for item in sessions if item["status"] == "gif_ready")
+    failed = sum(1 for item in sessions if item["status"] in ("character_failed", "gif_failed"))
+    expired = sum(1 for item in sessions if item["status"] == "expired")
+    active = sum(1 for item in sessions if item["status"] not in ("gif_ready", "expired", "character_failed", "gif_failed"))
+    return {
+        "sessions": sessions,
+        "stats": {
+            "total": int(total or 0),
+            "ready": ready,
+            "failed": failed,
+            "expired": expired,
+            "active": active,
+            "shown": len(sessions),
+        },
+        "baseUrl": base,
+    }
 
 
 def make_qr(url: str, target: Path):
@@ -1047,6 +1172,11 @@ class Handler(SimpleHTTPRequestHandler):
         if re.match(r"^/claim/[A-Za-z0-9]+$", path):
             self.path = "/claim.html"
             super().do_GET()
+            return
+        if path == "/api/kiosk/sessions":
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            limit = int(query.get("limit", ["50"])[0])
+            self.send_json(list_kiosk(limit))
             return
         match = re.match(r"^/api/kiosk/sessions/([^/]+)/qr\.png$", path)
         if match:
@@ -1206,6 +1336,14 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self.send_json(public_settings(settings))
             return
+        if path == "/api/kiosk/cleanup":
+            try:
+                removed = cleanup_kiosk(payload.get("hours"))
+            except Exception as exc:
+                self.send_json({"error": str(exc)}, 500)
+                return
+            self.send_json({"removed": removed})
+            return
         if path == "/api/kiosk/sessions":
             try:
                 session = create_kiosk_session(payload.get("photo"), payload.get("portraitMode", "bust"))
@@ -1229,6 +1367,19 @@ class Handler(SimpleHTTPRequestHandler):
             target.unlink(missing_ok=True)
             update_kiosk(row["id"], status="character_queued", error=None, character_path=None)
             KIOSK_QUEUE.put(("character", row["id"], {}))
+            self.send_json(serialize_kiosk(get_kiosk(kiosk_id=row["id"]), kiosk_base(self)), 202)
+            return
+        match = re.match(r"^/api/kiosk/sessions/([^/]+)/retry-gif$", path)
+        if match:
+            row = get_kiosk(kiosk_id=match.group(1))
+            if not row:
+                self.send_json({"error": "session not found"}, 404)
+                return
+            if not row["action_json"]:
+                self.send_json({"error": "还没有选择动作"}, 400)
+                return
+            update_kiosk(row["id"], status="gif_queued", error=None)
+            KIOSK_QUEUE.put(("gif", row["id"], {}))
             self.send_json(serialize_kiosk(get_kiosk(kiosk_id=row["id"]), kiosk_base(self)), 202)
             return
         match = re.match(r"^/api/kiosk/sessions/([^/]+)/gif$", path)
@@ -1296,14 +1447,26 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self.send_json({"error": "not found"}, 404)
 
+    def do_DELETE(self):
+        path = urllib.parse.urlparse(self.path).path
+        match = re.match(r"^/api/kiosk/sessions/([^/]+)$", path)
+        if not match:
+            self.send_json({"error": "not found"}, 404)
+            return
+        row = get_kiosk(kiosk_id=match.group(1))
+        if not row:
+            self.send_json({"error": "session not found"}, 404)
+            return
+        shutil.rmtree(KIOSK_DIR / row["id"], ignore_errors=True)
+        with db() as conn:
+            conn.execute("DELETE FROM kiosk_sessions WHERE id = ?", (row["id"],))
+        self.send_json({"deleted": row["id"]})
+
 
 def main():
+    global ACTIVE_PORT
     init_db()
-    apply_settings(load_settings())
-    pipeline.set_call_logger(record_api_call)
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-    threading.Thread(target=kiosk_worker, daemon=True).start()
+    recover_kiosk()
 
     server = None
     port = 8787
@@ -1317,9 +1480,17 @@ def main():
     if server is None:
         raise SystemExit("端口 8787-8799 都被占用")
 
+    ACTIVE_PORT = port
+    apply_settings(load_settings())
+    cleanup_kiosk()
+    pipeline.set_call_logger(record_api_call)
+    threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=kiosk_worker, daemon=True).start()
+    threading.Thread(target=cleanup_worker, daemon=True).start()
+
     url = f"http://127.0.0.1:{port}/"
     print(f"旗袍表情工坊 backend: {url}")
-    print(f"kiosk: {url}kiosk.html | claim base: {PUBLIC_BASE_URL or url.rstrip('/')}")
+    print(f"kiosk: {url}kiosk.html | claim base: {effective_base_url()}")
     print(f"provider: {pipeline.IMAGE_PROVIDER} | model: {pipeline.DASHSCOPE_MODEL} | key: {'yes' if pipeline.DASHSCOPE_KEY else 'no'}")
     print("按 Ctrl+C 停止。")
     if os.environ.get("STUDIO_NO_BROWSER") != "1":

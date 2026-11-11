@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>现场运营 · 旗袍表情工坊</title>
+<link rel="stylesheet" href="booth.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f5edde'/%3E%3Ccircle cx='16' cy='16' r='9' fill='%23c8452d'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">旗袍表情工坊 <span>BOOTH OPS</span></div>
+  <nav>
+    <a href="index.html">工作室</a>
+    <a href="kiosk.html" target="_blank" rel="noopener">现场模式</a>
+    <a href="booth.html" class="is-active">现场运营</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div>
+      <p class="kicker">MULTI-CUSTOMER BOOTH</p>
+      <h1>现场运营</h1>
+      <p class="lede">看今天接待了多少人，哪一单卡住，二维码指向哪里。</p>
+    </div>
+    <div class="hero-actions">
+      <button class="primary" id="openKiosk" type="button">打开拍照亭</button>
+      <button class="text-btn" id="refreshBtn" type="button">刷新</button>
+    </div>
+  </section>
+
+  <section class="stats" id="stats">
+    <div><b id="statTotal">0</b><span>累计会话</span></div>
+    <div><b id="statReady">0</b><span>已出片</span></div>
+    <div><b id="statActive">0</b><span>进行中</span></div>
+    <div><b id="statFailed">0</b><span>失败 / 过期</span></div>
+  </section>
+
+  <section class="panel settings">
+    <div class="panel-head">
+      <div><p class="kicker">SETTINGS</p><h2>设备与二维码</h2></div>
+      <span class="note" id="networkNote">正在读取网络…</span>
+    </div>
+    <div class="form-grid">
+      <label>设备名<input id="deviceName" type="text" maxlength="60"></label>
+      <label>记录保留（小时）<input id="retentionHours" type="number" min="1" max="720"></label>
+      <label class="full">手机访问地址
+        <input id="publicBaseUrl" type="text" placeholder="留空自动检测局域网 IP，例如 http://192.168.43.5:8787">
+      </label>
+    </div>
+    <div class="setting-foot">
+      <button class="text-btn" id="detectBtn" type="button">使用本机局域网地址</button>
+      <button class="text-btn" id="copyBaseBtn" type="button">复制地址</button>
+      <button class="text-btn" id="cleanupBtn" type="button">清理过期会话</button>
+      <button class="primary" id="saveSettings" type="button">保存设置</button>
+    </div>
+    <p class="hint" id="baseHint">二维码会用这个地址生成。手机必须和电脑同一 Wi-Fi，防火墙要放行端口。</p>
+  </section>
+
+  <section class="panel sessions">
+    <div class="panel-head">
+      <div><p class="kicker">SESSIONS</p><h2>最近会话</h2></div>
+      <span class="note" id="sessionNote">自动刷新 10 秒</span>
+    </div>
+    <div id="sessionList" class="session-list">
+      <div class="empty">正在读取…</div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="booth.js"></script>
+</body>
+</html>
