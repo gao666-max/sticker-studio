@@ -1194,6 +1194,10 @@ class Handler(SimpleHTTPRequestHandler):
             except ValueError as exc:
                 self.send_json({"error": str(exc)}, 400)
                 return
+            except Exception as exc:
+                print(f"[kiosk] create failed: {exc!r}", flush=True)
+                self.send_json({"error": "上传失败：" + str(exc)[:160]}, 500)
+                return
             row = get_kiosk(kiosk_id=session["id"])
             self.send_json(serialize_kiosk(row, kiosk_base(self)), 201)
             return
@@ -1302,7 +1306,8 @@ def main():
     print("按 Ctrl+C 停止。")
     if os.environ.get("STUDIO_NO_BROWSER") != "1":
         try:
-            webbrowser.open(url)
+            target = url + "kiosk.html" if os.environ.get("OPEN_KIOSK") == "1" else url
+            webbrowser.open(target)
         except Exception:
             pass
     with server:

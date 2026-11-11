@@ -94,7 +94,7 @@ USE_DSH_CREDENTIALS=0
 
 ## 现场拍照亭
 
-顶部「现场模式」打开 `kiosk.html`，这是一条给线下设备用的全屏流程：
+顶部「现场模式」打开 `kiosk.html`，这是一条给线下设备用的全屏流程。Windows 也可以双击 `start-kiosk.bat`，它会启动后端并自动打开页面。
 
 ```text
 拍照 → 1024 透明卡通角色 → 选动作 → GIF → 二维码 → 手机领取
@@ -142,6 +142,7 @@ sticker-studio/
 ├─ claim.html          # 手机领取页
 ├─ claim.css
 ├─ claim.js
+├─ start-kiosk.bat
 ├─ server.py           # 静态服务 + 订单 / Kiosk API + SQLite + 队列 + ZIP
 ├─ pipeline.py         # 去底、1024 角色、切帧、GIF、DashScope 适配
 ├─ serve.py            # 纯静态预览，不接后端时备用

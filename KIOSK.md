@@ -2,6 +2,8 @@
 
 入口：`http://127.0.0.1:8787/kiosk.html`
 
+Windows 直接双击 `start-kiosk.bat`，它会启动后端并自动打开 kiosk 页面。不要直接双击 `kiosk.html`。
+
 这是给线下设备用的全屏模式，和工作室工作台共用同一个后端。它只做一条最短链路：
 
 ```text
@@ -135,6 +137,17 @@ PUBLIC_BASE_URL=http://192.168.1.23:8787
 | GET | `/api/claims/{token}` | 领取页数据 |
 | GET | `/api/claims/{token}/download` | 下载 GIF |
 | GET | `/claim/{token}` | 手机领取页 |
+
+## 上传失败
+
+先看现在的错误文案：
+
+- `后端没有连接`：页面是 `file://` 打开的，或者用了纯静态 `serve.py`。必须用 `start-studio.bat` / `python server.py`，然后打开 `http://127.0.0.1:8787/kiosk.html`。
+- `上传失败：没有收到有效照片`：浏览器没有拿到画面。先点「用示例照片继续」验证；如果示例也失败，就是后端没通。
+- `HTTP 500`：看 `server.py` 控制台的 `[kiosk] create failed`，通常是目录权限或磁盘问题。
+- 摄像头有画面但按快门没反应：确认页面不是 `file://`，并且浏览器允许了摄像头。
+
+设备本机建议始终用 `http://127.0.0.1:8787/kiosk.html`，`localhost` 才允许 `getUserMedia`。手机扫码走 `PUBLIC_BASE_URL`，可以是局域网 IP 或 HTTPS 域名。
 
 ## 摄像头
 

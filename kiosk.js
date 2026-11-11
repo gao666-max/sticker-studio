@@ -196,7 +196,7 @@
       session = created;
       pollSession();
     } catch (e) {
-      showError("上传失败", "照片没有传上去。请重试上传，或重拍一张。", [
+      showError("上传失败", "照片没有传上去：" + (e.message || "网络错误") + "。如果当前地址是 file://，请用 start-studio.bat 启动后端后再打开。", [
         { label: "重试上传", action: () => uploadPhoto(photoData) },
         { label: "重拍", action: () => resetToPreview() }
       ]);
@@ -559,10 +559,23 @@
     });
   }
 
+  async function checkBackend() {
+    try {
+      await request("/api/health");
+      return true;
+    } catch (e) {
+      showError("后端没有连接", "请先用 start-studio.bat 启动后端，再打开 http://127.0.0.1:8787/kiosk.html。不要直接双击 kiosk.html。", [
+        { label: "重新尝试", action: () => location.reload() }
+      ]);
+      return false;
+    }
+  }
+
   function init() {
     bindEvents();
     setState("PREVIEW");
     startCamera();
+    checkBackend();
     window.KioskHardware = {
       shutter: () => document.dispatchEvent(new CustomEvent("kiosk:shutter")),
       confirm: () => document.dispatchEvent(new CustomEvent("kiosk:confirm")),
